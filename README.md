@@ -105,6 +105,8 @@ There is a Feature Selection Evaluation Dashboard based on the benchmarks provid
 
 https://fseval.imada.sdu.dk/
 
+The dashboard offers a collection of useful analytic tools to provide comprehensive and comparative insights into the performance of your feature selection method(s).
+
 #  Citation
 
 If you use FSEVAL in your research, please cite the original paper:
