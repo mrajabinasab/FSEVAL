@@ -85,9 +85,9 @@ Initializes the evalutation and benchmark object.
 | **`output_dir`** | results | Folder where CSV result files are saved. |
 | **`cv`** | 5 | Cross-validation folds (supervised only). |
 | **`avg_steps`** | 10 | Number of random restarts / seeds to average over. |
-| **`eval_type`** | ""both""" | Number of random restarts / seeds to average over. |
-| **`metrics`** | "[""CLSACC"", ""NMI"", ""ACC"", ""AUC""]" | """supervised"", ""unsupervised"", or ""both""". |
-| **`experiments`** | "[""10Percent"", ""100Percent""]" | Which feature ratio grids to evaluate. |
+| **`eval_type`** | both | Number of random restarts / seeds to average over. |
+| **`metrics`** | ["CLSACC", "NMI", "ACC", "AUC"] | "supervised", "unsupervised", or "both". |
+| **`experiments`** | ["10Percent", "100Percent"] | Which feature ratio grids to evaluate. |
 
 ### ⚙️ `run(datasets, methods, classifier=None)`
 
