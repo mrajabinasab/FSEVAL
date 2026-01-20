@@ -28,13 +28,13 @@ FSEval requires:
 You can just download the source code and import fseval, or you can install it using pip:
 
 ```bash
-pip install fseval
+pip install sdufseval
 ```
 
 ## 🚀 Quick Example
 
 ```python
-from fseval import FSEVAL
+from sdufseval import FSEVAL
 import numpy as np
 
 if __name__ == "__main__":
