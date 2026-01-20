@@ -1,2 +1,114 @@
-# FSEVAL
-Feature Selection Evaluation Suite
+# FSEval – Feature Selection Evaluation Suite
+
+**FSEval** is a lightweight, modular Python library designed to **benchmark feature selection and feature ranking methods** across multiple datasets using both **supervised** and **unsupervised** downstream evaluation protocols.
+
+It helps researchers and practitioners answer the question:
+
+> "Which feature selection method actually works best for my type of data and task?"
+
+FSEval automates:
+
+- Repeated training & evaluation at different feature subset sizes
+- Stochastic method averaging
+- Result persistence & incremental updates
+- Support for both classification and clustering-based evaluation
+
+## 📦 Dependencies and Requirements
+
+FSEval requires:
+
+- `python>=3.8`
+- `numpy`
+- `pandas`
+- `scikit-learn`
+- `scipy`
+- `clustpy` (only needed for `unsupervised_clustering_accuracy`)
+
+## 💡 Installation
+You can just download the source code and import fseval, or you can install it using pip:
+
+```bash
+pip install fseval
+```
+
+## 🚀 Quick Example
+
+```python
+from fseval import FSEVAL
+import numpy as np
+
+if __name__ == "__main__":
+
+    # The 23 real datasets
+    DATASETS_TO_RUN = [
+        'ALLAML', 'CLL_SUB_111', 'COIL20', 'Carcinom', 'GLIOMA', 'GLI_85', 
+        'Isolet', 'ORL', 'Prostate_GE', 'SMK_CAN_187', 'TOX_171', 'Yale', 
+        'arcene', 'colon', 'gisette', 'leukemia', 'lung', 'lung_discrete', 
+        'madelon', 'orlraws10P', 'pixraw10P', 'warpAR10P', 'warpPIE10P'
+    ]
+
+    # Initialize FSEVAL
+    evaluator = FSEVAL(output_dir="benchmark_results", avg_steps=10)
+
+    # Configuration for methods using the class internal random_baseline
+    methods_list = [
+        {
+            'name': 'Random', 
+            'stochastic': True, 
+            'func': evaluator.random_baseline
+        },
+        {
+            'name': 'Variance_Baseline', 
+            'stochastic': False, 
+            'func': lambda X: np.var(X, axis=0)
+        }
+    ]
+    
+    # Run Benchmark (Defaults to RF)
+    evaluator.run(DATASETS_TO_RUN, methods_list)
+```
+
+## Data Loading
+
+load_dataset(dataset_name, data_dir="datasets") supports:
+- Single .mat file with keys 'X' and 'Y'
+- Two CSV files: {name}_X.csv and {name}_y.csv
+
+## 📚 API Reference
+
+### 🛠️ `FSEval(output_dir="results", cv=5, avg_steps=10, eval_type="both", metrics=None, experiments=None)`
+
+Initializes the evalutation and benchmark object.
+
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| **`output_dir`** | results | Folder where CSV result files are saved. |
+| **`cv`** | 5 | Cross-validation folds (supervised only). |
+| **`avg_steps`** | 10 | Number of random restarts / seeds to average over. |
+| **`eval_type`** | ""both""" | Number of random restarts / seeds to average over. |
+| **`metrics`** | "[""CLSACC"", ""NMI"", ""ACC"", ""AUC""]" | """supervised"", ""unsupervised"", or ""both""". |
+| **`experiments`** | "[""10Percent"", ""100Percent""]" | Which feature ratio grids to evaluate. |
+
+### ⚙️ `run(datasets, methods, classifier=None)`
+
+Initializes the evalutation and benchmark object.
+
+| Argument | Type | Description |
+| :--- | :--- | :--- |
+| **`datasets`** | List[str] | Dataset names loadable via load_dataset(). |
+| **`methods`** | List[dict] | "[{""name"": str, ""func"": callable, ""stochastic"": bool}, ...]" |
+| **`classifier`** | sklearn classifier | Classifier for supervised eval (default: RandomForestClassifier) |
+
+#  Dashboard
+
+There is a Feature Selection Evaluation Dashboard based on the benchmarks provided by FSEVAL, available on:
+
+https://fseval.imada.sdu.dk/
+
+#  Citation
+
+If you use FSEVAL in your research, please cite the original paper:
+
+```
+CITATION WILL BE PROVIDED UPON PUBLICATION.
+```
