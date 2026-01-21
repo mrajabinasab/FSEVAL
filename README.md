@@ -39,7 +39,7 @@ import numpy as np
 
 if __name__ == "__main__":
 
-    # The 23 real datasets
+    # The 23 benchmark datasets
     DATASETS_TO_RUN = [
         'ALLAML', 'CLL_SUB_111', 'COIL20', 'Carcinom', 'GLIOMA', 'GLI_85', 
         'Isolet', 'ORL', 'Prostate_GE', 'SMK_CAN_187', 'TOX_171', 'Yale', 
@@ -50,7 +50,7 @@ if __name__ == "__main__":
     # Initialize FSEVAL
     evaluator = FSEVAL(output_dir="benchmark_results", avg_steps=10)
 
-    # Configuration for methods using the class internal random_baseline
+    # Configuration for methods
     methods_list = [
         {
             'name': 'Random', 
@@ -64,8 +64,19 @@ if __name__ == "__main__":
         }
     ]
     
-    # Run Benchmark (Defaults to RF)
+    # --- 1. Run Standard Benchmark ---
+    # Evaluates methods on real-world datasets across different feature scales
     evaluator.run(DATASETS_TO_RUN, methods_list)
+
+    # --- 2. Run Runtime Analysis ---
+    # Performs scalability testing on synthetic data with a time cap.
+    # vary_param='both' triggers both 'features' and 'instances' experiments.
+    print("\n>>> Starting Scalability Analysis...")
+    evaluator.timer(
+        methods=methods_list, 
+        vary_param='both', 
+        time_limit=3600  # 1 hour limit 
+    )
 ```
 
 ## Data Loading
@@ -84,9 +95,9 @@ Initializes the evalutation and benchmark object.
 | :--- | :--- | :--- |
 | **`output_dir`** | results | Folder where CSV result files are saved. |
 | **`cv`** | 5 | Cross-validation folds (supervised only). |
-| **`avg_steps`** | 10 | Number of random restarts / seeds to average over. |
-| **`eval_type`** | both | Number of random restarts / seeds to average over. |
-| **`metrics`** | ["CLSACC", "NMI", "ACC", "AUC"] | "supervised", "unsupervised", or "both". |
+| **`avg_steps`** | 10 | Number of random restarts / seeds to average over.|
+| **`eval_type`** | both | "supervised", "unsupervised", or "both". |
+| **`metrics`** | ["CLSACC", "NMI", "ACC", "AUC"] | Evaluation metrics to calculate. |
 | **`experiments`** | ["10Percent", "100Percent"] | Which feature ratio grids to evaluate. |
 
 ### ⚙️ `run(datasets, methods, classifier=None)`
@@ -98,6 +109,16 @@ Initializes the evalutation and benchmark object.
 | **`datasets`** | List[str] | Dataset names loadable via load_dataset(). |
 | **`methods`** | List[dict] | "[{""name"": str, ""func"": callable, ""stochastic"": bool}, ...]" |
 | **`classifier`** | sklearn classifier | Classifier for supervised eval (default: RandomForestClassifier) |
+
+### ⚙️ `timer(methods, vary_param='features', time_limit=3600)`
+
+Runs a runtime analysis on the methods.
+
+| Argument | Type | Description |
+| :--- | :--- | :--- |
+| **`methods`** | List[dict] | "[{""name"": str, ""func"": callable, ""stochastic"": bool}, ...]" |
+| **`vary_param`** | ["CLSACC", "NMI", "ACC", "AUC"] | "features", "instances", or "both". |
+| **`time_limit`** | 3600 | Terminate the method after reecording first time it exceeds this limit. |
 
 #  Dashboard
 
