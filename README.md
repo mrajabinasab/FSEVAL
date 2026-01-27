@@ -95,7 +95,9 @@ Initializes the evalutation and benchmark object.
 | :--- | :--- | :--- |
 | **`output_dir`** | results | Folder where CSV result files are saved. |
 | **`cv`** | 5 | Cross-validation folds (supervised only). |
-| **`avg_steps`** | 10 | Number of random restarts / seeds to average over.|
+| **`avg_steps`** | 10 | Number of repetitions for stochastic methods.|
+| **`supervised_iter`** | 5 | Number of classifier's runs with different random seeds.|
+| **`unsupervised_iter`** | 10 | Number of clustering runs with different random seeds.|
 | **`eval_type`** | both | "supervised", "unsupervised", or "both". |
 | **`metrics`** | ["CLSACC", "NMI", "ACC", "AUC"] | Evaluation metrics to calculate. |
 | **`experiments`** | ["10Percent", "100Percent"] | Which feature ratio grids to evaluate. |
