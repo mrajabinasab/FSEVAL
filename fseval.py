@@ -12,7 +12,9 @@ class FSEVAL:
     def __init__(self, 
                  output_dir="results", 
                  cv=5, 
-                 avg_steps=10, 
+                 avg_steps=10,
+                 supervised_iter=5,
+                 unsupervised_iter=10, 
                  eval_type="both", 
                  metrics=None, 
                  experiments=None):
@@ -22,6 +24,8 @@ class FSEVAL:
         self.output_dir = output_dir
         self.cv = cv
         self.avg_steps = avg_steps
+        self.supervised_iter = supervised_iter
+        self.unsupervised_iter = unsupervised_iter
         self.eval_type = eval_type
         
         # Metric configuration
@@ -68,7 +72,7 @@ class FSEVAL:
                 name = m_info['name']
                 fs_func = m_info['func']
                 # Stochastic methods run 10 times and average
-                repeats = 10 if m_info.get('stochastic', False) else 1
+                repeats = self.avg_steps if m_info.get('stochastic', False) else 1
                 
                 # Internal storage for current dataset results
                 ds_results = {s: {met: [] for met in self.selected_metrics} for s in self.scales}
@@ -91,11 +95,11 @@ class FSEVAL:
                             c_acc, nmi, acc, auc = np.nan, np.nan, np.nan, np.nan
                             
                             if self.eval_type in ["unsupervised", "both"]:
-                                c_acc, nmi = unsupervised_eval(X_subset, y, avg_steps=self.avg_steps)
+                                c_acc, nmi = unsupervised_eval(X_subset, y, avg_steps=self.unsupervised_iter)
                             
                             if self.eval_type in ["supervised", "both"]:
                                 # Passes classifier (None or instance) to eval.py
-                                acc, auc = supervised_eval(X_subset, y, classifier=classifier, cv=self.cv, avg_steps=self.avg_steps)
+                                acc, auc = supervised_eval(X_subset, y, classifier=classifier, cv=self.cv, avg_steps=self.supervised_iter)
 
                             # Map metrics to columns
                             mapping = {"CLSACC": c_acc, "NMI": nmi, "ACC": acc, "AUC": auc}
