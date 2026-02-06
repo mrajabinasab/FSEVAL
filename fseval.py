@@ -7,7 +7,6 @@ import pandas as pd
 from eval import unsupervised_eval, supervised_eval
 from loader import load_dataset
 
-
 class FSEVAL:
     def __init__(self, 
                  output_dir="results", 
@@ -19,7 +18,6 @@ class FSEVAL:
                  metrics=None, 
                  experiments=None,
                  save_all=False):
-
         self.output_dir = output_dir
         self.cv = cv
         self.avg_steps = avg_steps
@@ -28,11 +26,9 @@ class FSEVAL:
         self.eval_type = eval_type
         self.save_all = save_all
         
-        # Metric configuration
         all_metrics = ["CLSACC", "NMI", "ACC", "AUC"]
         self.selected_metrics = metrics if metrics else all_metrics
         
-        # Experiment/Scale configuration
         self.scales = {}
         target_exps = experiments if experiments else ["10Percent", "100Percent"]
         if "10Percent" in target_exps:
@@ -44,14 +40,30 @@ class FSEVAL:
             os.makedirs(self.output_dir)
 
     def random_baseline(self, X, **kwargs):
-        """Randomly assigns importance scores to features."""
         return np.random.rand(X.shape[1])
 
+    def _should_skip(self, ds_name, methods):
+        for m_info in methods:
+            for scale_name in self.scales.keys():
+                last_met = self.selected_metrics[-1]
+                fname = os.path.join(self.output_dir, f"{m_info['name']}_{last_met}_{scale_name}.csv")
+                
+                if not os.path.exists(fname):
+                    return False
+                
+                df = pd.read_csv(fname)
+                if 'Dataset' not in df.columns or ds_name not in df['Dataset'].values:
+                    return False
+        return True
+
     def run(self, datasets, methods, classifier=None):
-        """Executes the benchmark for given datasets and FS methods."""
         warnings.filterwarnings("ignore")
+        
         for ds_name in datasets:
-            print(f"\n>>> Benchmarking Dataset: {ds_name}")
+            if self._should_skip(ds_name, methods):
+                print(f">>> Skipping {ds_name}")
+                continue
+
             X, y_raw = load_dataset(ds_name)
             if X is None: continue
             
@@ -63,33 +75,27 @@ class FSEVAL:
                 fs_func = m_info['func']
                 repeats = self.avg_steps if m_info.get('stochastic', False) else 1
                 
-                # Internal storage for current dataset results
                 ds_results = {s: {met: [] for met in self.selected_metrics} for s in self.scales}
 
                 for r in range(repeats):
-                    print(f"  [{name}] Progress: {r+1}/{repeats}")
-                    
+                    print(f"  [{name}] {ds_name} - Run {r+1}/{repeats}")
                     scores = fs_func(X)
                     indices = np.argsort(scores)[::-1]
 
                     for scale_name, percentages in self.scales.items():
                         row = {met: {'Dataset': ds_name} for met in self.selected_metrics}
-                        
                         for p in percentages:
                             k = max(1, min(math.ceil(p * n_features), n_features))
                             X_subset = X[:, indices[:k]]
 
-                            c_acc, nmi, acc, auc = np.nan, np.nan, np.nan, np.nan
-                            
+                            res = {"CLSACC": np.nan, "NMI": np.nan, "ACC": np.nan, "AUC": np.nan}
                             if self.eval_type in ["unsupervised", "both"]:
-                                c_acc, nmi = unsupervised_eval(X_subset, y, avg_steps=self.unsupervised_iter)
-                            
+                                res["CLSACC"], res["NMI"] = unsupervised_eval(X_subset, y, avg_steps=self.unsupervised_iter)
                             if self.eval_type in ["supervised", "both"]:
-                                acc, auc = supervised_eval(X_subset, y, classifier=classifier, cv=self.cv, avg_steps=self.supervised_iter)
+                                res["ACC"], res["AUC"] = supervised_eval(X_subset, y, classifier=classifier, cv=self.cv, avg_steps=self.supervised_iter)
 
-                            mapping = {"CLSACC": c_acc, "NMI": nmi, "ACC": acc, "AUC": auc}
                             for met in self.selected_metrics:
-                                row[met][p] = mapping[met]
+                                row[met][p] = res[met]
                         
                         for met in self.selected_metrics:
                             ds_results[scale_name][met].append(row[met])
@@ -105,12 +111,11 @@ class FSEVAL:
                     df_new = df_new.groupby('Dataset').mean().reset_index()
                 
                 df_new.columns = df_new.columns.astype(str)
-                
                 fname = os.path.join(self.output_dir, f"{method_name}_{met_name}_{scale}.csv")
                 
                 if os.path.exists(fname):
                     df_old = pd.read_csv(fname)
-                    df_old.columns = df_old.columns.astype(str) 
+                    df_old.columns = df_old.columns.astype(str)
                     
                     if self.save_all:
                         df_final = pd.concat([df_old, df_new], ignore_index=True)
@@ -124,29 +129,17 @@ class FSEVAL:
     def timer(self, methods, vary_param='both', time_limit=3600):
         experiments = []
         if vary_param in ['features', 'both']:
-            experiments.append({
-                'name': 'features',
-                'fixed_val': 100,
-                'range': range(1000, 20001, 500),
-                'file': 'time_analysis_features.csv'
-            })
+            experiments.append({'name': 'features', 'fixed_val': 100, 'range': range(1000, 20001, 500), 'file': 'time_analysis_features.csv'})
         if vary_param in ['instances', 'both']:
-            experiments.append({
-                'name': 'instances',
-                'fixed_val': 100,
-                'range': range(1000, 20001, 500),
-                'file': 'time_analysis_instances.csv'
-            })
+            experiments.append({'name': 'instances', 'fixed_val': 100, 'range': range(1000, 20001, 500), 'file': 'time_analysis_instances.csv'})
 
         for exp in experiments:
             vary_type = exp['name']
             val_range = exp['range']
             filename = os.path.join(self.output_dir, exp['file'])
-            
             timed_out_methods = set()
             results = {m['name']: [] for m in methods}
             
-            print(f"\n--- Starting Experiment: Varying {vary_type} ---")
             for val in val_range:
                 if vary_type == 'features':
                     n_samples, n_features = exp['fixed_val'], val
@@ -163,7 +156,6 @@ class FSEVAL:
                 for m_info in methods:
                     name = m_info['name']
                     func = m_info['func']
-                    
                     if name in timed_out_methods:
                         results[name].append(-1)
                         continue
@@ -172,14 +164,10 @@ class FSEVAL:
                         start_time = time.time()
                         func(X)
                         duration = time.time() - start_time
-                        
                         if duration > time_limit:
-                            print(f"  - {name:<18}: {duration:.4f}s (TIMEOUT)")
                             timed_out_methods.add(name)
-                        else:
-                            print(f"  - {name:<18}: {duration:.4f}s")
                         results[name].append(duration)
-                    except Exception as e:
+                    except Exception:
                         results[name].append(np.nan)
 
             df_results = pd.DataFrame.from_dict(results, orient='index', columns=list(val_range))
