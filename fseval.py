@@ -17,16 +17,16 @@ class FSEVAL:
                  unsupervised_iter=10, 
                  eval_type="both", 
                  metrics=None, 
-                 experiments=None):
-        """
-        Feature Selection Evaluation Suite.
-        """
+                 experiments=None,
+                 save_all=False):
+
         self.output_dir = output_dir
         self.cv = cv
         self.avg_steps = avg_steps
         self.supervised_iter = supervised_iter
         self.unsupervised_iter = unsupervised_iter
         self.eval_type = eval_type
+        self.save_all = save_all
         
         # Metric configuration
         all_metrics = ["CLSACC", "NMI", "ACC", "AUC"]
@@ -44,21 +44,11 @@ class FSEVAL:
             os.makedirs(self.output_dir)
 
     def random_baseline(self, X, **kwargs):
-        """
-        Randomly assigns importance scores to features.
-        Internal method for lower-bound baseline.
-        """
+        """Randomly assigns importance scores to features."""
         return np.random.rand(X.shape[1])
 
     def run(self, datasets, methods, classifier=None):
-        """
-        Executes the benchmark for given datasets and FS methods.
-        
-        Args:
-            datasets: List of dataset names.
-            methods: List of dicts {'name': str, 'func': callable, 'stochastic': bool}.
-            classifier: Optional sklearn classifier instance to pass to supervised_eval.
-        """
+        """Executes the benchmark for given datasets and FS methods."""
         warnings.filterwarnings("ignore")
         for ds_name in datasets:
             print(f"\n>>> Benchmarking Dataset: {ds_name}")
@@ -71,7 +61,6 @@ class FSEVAL:
             for m_info in methods:
                 name = m_info['name']
                 fs_func = m_info['func']
-                # Stochastic methods run 10 times and average
                 repeats = self.avg_steps if m_info.get('stochastic', False) else 1
                 
                 # Internal storage for current dataset results
@@ -80,7 +69,6 @@ class FSEVAL:
                 for r in range(repeats):
                     print(f"  [{name}] Progress: {r+1}/{repeats}")
                     
-                    # Get feature ranking
                     scores = fs_func(X)
                     indices = np.argsort(scores)[::-1]
 
@@ -91,17 +79,14 @@ class FSEVAL:
                             k = max(1, min(math.ceil(p * n_features), n_features))
                             X_subset = X[:, indices[:k]]
 
-                            # Run evaluators
                             c_acc, nmi, acc, auc = np.nan, np.nan, np.nan, np.nan
                             
                             if self.eval_type in ["unsupervised", "both"]:
                                 c_acc, nmi = unsupervised_eval(X_subset, y, avg_steps=self.unsupervised_iter)
                             
                             if self.eval_type in ["supervised", "both"]:
-                                # Passes classifier (None or instance) to eval.py
                                 acc, auc = supervised_eval(X_subset, y, classifier=classifier, cv=self.cv, avg_steps=self.supervised_iter)
 
-                            # Map metrics to columns
                             mapping = {"CLSACC": c_acc, "NMI": nmi, "ACC": acc, "AUC": auc}
                             for met in self.selected_metrics:
                                 row[met][p] = mapping[met]
@@ -109,21 +94,34 @@ class FSEVAL:
                         for met in self.selected_metrics:
                             ds_results[scale_name][met].append(row[met])
 
-                # Save/Update results for this method/dataset
                 self._save_results(name, ds_results)
 
-    
+    def _save_results(self, method_name, ds_results):
+        for scale, metrics in ds_results.items():
+            for met_name, rows in metrics.items():
+                df_new = pd.DataFrame(rows)
+                
+                if not self.save_all:
+                    df_new = df_new.groupby('Dataset').mean().reset_index()
+                
+                df_new.columns = df_new.columns.astype(str)
+                
+                fname = os.path.join(self.output_dir, f"{method_name}_{met_name}_{scale}.csv")
+                
+                if os.path.exists(fname):
+                    df_old = pd.read_csv(fname)
+                    df_old.columns = df_old.columns.astype(str) 
+                    
+                    if self.save_all:
+                        df_final = pd.concat([df_old, df_new], ignore_index=True)
+                    else:
+                        df_final = pd.concat([df_old, df_new]).drop_duplicates(subset=['Dataset'], keep='last')
+                else:
+                    df_final = df_new
+                
+                df_final.to_csv(fname, index=False)
+
     def timer(self, methods, vary_param='both', time_limit=3600):
-        """
-        Runs a standalone runtime analysis experiment with a time cap.
-        
-        Args:
-            methods: List of dicts {'name': str, 'func': callable}.
-            vary_param: 'features', 'instances', or 'both'.
-            time_limit: Max seconds per method before it is skipped.
-        """
-        
-        # Determine which experiments to run
         experiments = []
         if vary_param in ['features', 'both']:
             experiments.append({
@@ -145,15 +143,11 @@ class FSEVAL:
             val_range = exp['range']
             filename = os.path.join(self.output_dir, exp['file'])
             
-            # Tracking for this specific experiment
             timed_out_methods = set()
             results = {m['name']: [] for m in methods}
             
             print(f"\n--- Starting Experiment: Varying {vary_type} ---")
-            print(f"Time limit: {time_limit}s | Output: {filename}")
-
             for val in val_range:
-                # 1. Generate synthetic data based on vary_param
                 if vary_type == 'features':
                     n_samples, n_features = exp['fixed_val'], val
                 else:
@@ -162,62 +156,32 @@ class FSEVAL:
                 try:
                     X = np.random.rand(n_samples, n_features)
                 except MemoryError:
-                    print(f"  FATAL: MemoryError: Failed to allocate {n_samples}x{n_features} data.")
                     for m in methods:
                         results[m['name']].append(-1 if m['name'] in timed_out_methods else np.nan)
                     continue
 
-                # 2. Run each method
                 for m_info in methods:
                     name = m_info['name']
                     func = m_info['func']
                     
-                    # Check if method has already timed out in this experiment
                     if name in timed_out_methods:
                         results[name].append(-1)
                         continue
                     
                     try:
                         start_time = time.time()
-                        
-                        # Execute the method (assuming benchmark format)
                         func(X)
-                        
                         duration = time.time() - start_time
                         
                         if duration > time_limit:
-                            print(f"  - {name:<18}: {duration:.4f}s (TIMEOUT - skipping future runs)")
+                            print(f"  - {name:<18}: {duration:.4f}s (TIMEOUT)")
                             timed_out_methods.add(name)
                         else:
                             print(f"  - {name:<18}: {duration:.4f}s")
-                        
                         results[name].append(duration)
-                        
                     except Exception as e:
-                        print(f"  - {name:<18}: FAILED ({type(e).__name__})")
                         results[name].append(np.nan)
 
-            # 3. Save results to CSV
-            try:
-                df_results = pd.DataFrame.from_dict(results, orient='index', columns=list(val_range))
-                df_results.index.name = 'Method'
-                df_results.to_csv(filename)
-                print(f"\n--- Results saved to {filename} ---")
-            except Exception as e:
-                print(f"\n--- FAILED to save results: {e} ---")
-
-
-    def _save_results(self, method_name, ds_results):
-        """Aggregates repeats and saves to disk after each dataset."""
-        for scale, metrics in ds_results.items():
-            for met_name, rows in metrics.items():
-                df_new = pd.DataFrame(rows).groupby('Dataset').mean().reset_index()
-                fname = os.path.join(self.output_dir, f"{method_name}_{met_name}_{scale}.csv")
-                
-                if os.path.exists(fname):
-                    df_old = pd.read_csv(fname)
-                    df_final = pd.concat([df_old, df_new]).drop_duplicates(subset=['Dataset'], keep='last')
-                else:
-                    df_final = df_new
-                
-                df_final.to_csv(fname, index=False)
+            df_results = pd.DataFrame.from_dict(results, orient='index', columns=list(val_range))
+            df_results.index.name = 'Method'
+            df_results.to_csv(filename)
