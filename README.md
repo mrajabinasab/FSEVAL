@@ -101,6 +101,7 @@ Initializes the evalutation and benchmark object.
 | **`eval_type`** | both | "supervised", "unsupervised", or "both". |
 | **`metrics`** | ["CLSACC", "NMI", "ACC", "AUC"] | Evaluation metrics to calculate. |
 | **`experiments`** | ["10Percent", "100Percent"] | Which feature ratio grids to evaluate. |
+| **`save_all`** | False | Save the results of all runs of the stochastic methods separately. |
 
 ### ⚙️ `run(datasets, methods, classifier=None)`
 
