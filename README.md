@@ -23,7 +23,8 @@ FSEval requires:
 - `scikit-learn`
 - `scipy`
 - `clustpy` (only needed for `unsupervised_clustering_accuracy`)
-
+- `pcametric` (only needed for `AAD`)
+- 
 ## 💡 Installation
 You can just download the source code and import fseval, or you can install it using pip:
 
