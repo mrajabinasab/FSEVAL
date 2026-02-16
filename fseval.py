@@ -4,9 +4,9 @@ import time
 import warnings
 import numpy as np
 import pandas as pd
+from pcametric import AAD 
 from eval import unsupervised_eval, supervised_eval
 from loader import load_dataset
-from pcametric import AAD  
 
 class FSEVAL:
     def __init__(self, 
@@ -208,4 +208,5 @@ class FSEVAL:
             df_results = pd.DataFrame.from_dict(results, orient='index', columns=list(val_range))
             df_results.index.name = 'Method'
             df_results.to_csv(filename)
+
 
