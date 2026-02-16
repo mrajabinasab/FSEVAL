@@ -108,7 +108,7 @@ load_dataset(dataset_name, data_dir="datasets") supports:
 
 ## 📚 API Reference
 
-### 🛠️ `FSEval(output_dir="results", cv=5, avg_steps=10, eval_type="both", metrics=None, experiments=None)`
+### 🛠️ `FSEval(output_dir="results", cv=5, avg_steps=10, eval_type=["supervised", "unsupervised", "model_agnostic"], metrics=None, experiments=None)`
 
 Initializes the evalutation and benchmark object.
 
