@@ -36,19 +36,40 @@ pip install sdufseval
 ```python
 from sdufseval import FSEVAL
 import numpy as np
+from sklearn.neighbors import NearestNeighbors
+
+def snn_consistency_k5(X_orig, X_sub, y):
+    """
+    Calculates the average proportion of shared nearest neighbors (k=5) 
+    between the original space and the feature-selected subspace.
+    """
+    k = 5
+    # Ensure we don't exceed sample size
+    k = min(k, X_orig.shape[0] - 1)
+    
+    def get_nn_indices(data, n_neighbors):
+        nbrs = NearestNeighbors(n_neighbors=n_neighbors + 1, algorithm='auto').fit(data)
+        _, indices = nbrs.kneighbors(data)
+        return indices[:, 1:] # Exclude self
+
+    nn_orig = get_nn_indices(X_orig, k)
+    nn_sub = get_nn_indices(X_sub, k)
+    
+    intersections = [len(np.intersect1d(nn_orig[i], nn_sub[i])) for i in range(len(nn_orig))]
+    return np.mean(intersections) / k
 
 if __name__ == "__main__":
 
-    # The 23 benchmark datasets
-    DATASETS_TO_RUN = [
-        'ALLAML', 'CLL_SUB_111', 'COIL20', 'Carcinom', 'GLIOMA', 'GLI_85', 
-        'Isolet', 'ORL', 'Prostate_GE', 'SMK_CAN_187', 'TOX_171', 'Yale', 
-        'arcene', 'colon', 'gisette', 'leukemia', 'lung', 'lung_discrete', 
-        'madelon', 'orlraws10P', 'pixraw10P', 'warpAR10P', 'warpPIE10P'
-    ]
+    # Dataset selection
+    DATASETS_TO_RUN = ['colon', 'leukemia', 'prostate_GE']
 
-    # Initialize FSEVAL
-    evaluator = FSEVAL(output_dir="benchmark_results", avg_steps=10)
+    # Initialize FSEVAL with both AAD (model_agnostic) and SNN (custom)
+    evaluator = FSEVAL(
+        output_dir="benchmark_results", 
+        avg_steps=5,
+        eval_type=["supervised, "unsupervised", ""model_agnostic", "custom"],
+        custom_metrics={"SNN_K5": snn_consistency_k5}
+    )
 
     # Configuration for methods
     methods_list = [
@@ -64,18 +85,18 @@ if __name__ == "__main__":
         }
     ]
     
-    # --- 1. Run Standard Benchmark ---
-    # Evaluates methods on real-world datasets across different feature scales
+    # --- 1. Run Unified Benchmark ---
+    # This will generate separate CSVs for AAD (Global structure) 
+    # and SNN_K5 (Local structure preservation).
+    print(">>> Starting Integrated Evaluation (Global & Local metrics)...")
     evaluator.run(DATASETS_TO_RUN, methods_list)
 
     # --- 2. Run Runtime Analysis ---
-    # Performs scalability testing on synthetic data with a time cap.
-    # vary_param='both' triggers both 'features' and 'instances' experiments.
     print("\n>>> Starting Scalability Analysis...")
     evaluator.timer(
         methods=methods_list, 
         vary_param='both', 
-        time_limit=3600  # 1 hour limit 
+        time_limit=3600 
     )
 ```
 
@@ -98,8 +119,9 @@ Initializes the evalutation and benchmark object.
 | **`avg_steps`** | 10 | Number of repetitions for stochastic methods.|
 | **`supervised_iter`** | 5 | Number of classifier's runs with different random seeds.|
 | **`unsupervised_iter`** | 10 | Number of clustering runs with different random seeds.|
-| **`eval_type`** | both | "supervised", "unsupervised", or "both". |
-| **`metrics`** | ["CLSACC", "NMI", "ACC", "AUC"] | Evaluation metrics to calculate. |
+| **`eval_type`** | ["supervised", "unsupervised", "model_agnostic"] | "supervised", "unsupervised", "model_agnostic", or "custom" to enable inclusion of custon user-defined metrics. |
+| **`metrics`** | ["CLSACC", "NMI", "ACC", "AUC", "AAD"] | Evaluation metrics to calculate. |
+| **`custom_metrics`** | {} | User-defined custom evaluation metrics. |
 | **`experiments`** | ["10Percent", "100Percent"] | Which feature ratio grids to evaluate. |
 | **`save_all`** | False | Save the results of all runs of the stochastic methods separately. |
 
