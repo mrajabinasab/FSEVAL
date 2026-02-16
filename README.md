@@ -44,13 +44,12 @@ def snn_consistency_k5(X_orig, X_sub, y):
     between the original space and the feature-selected subspace.
     """
     k = 5
-    # Ensure we don't exceed sample size
     k = min(k, X_orig.shape[0] - 1)
     
     def get_nn_indices(data, n_neighbors):
         nbrs = NearestNeighbors(n_neighbors=n_neighbors + 1, algorithm='auto').fit(data)
         _, indices = nbrs.kneighbors(data)
-        return indices[:, 1:] # Exclude self
+        return indices[:, 1:]
 
     nn_orig = get_nn_indices(X_orig, k)
     nn_sub = get_nn_indices(X_sub, k)
@@ -60,10 +59,8 @@ def snn_consistency_k5(X_orig, X_sub, y):
 
 if __name__ == "__main__":
 
-    # Dataset selection
     DATASETS_TO_RUN = ['colon', 'leukemia', 'prostate_GE']
 
-    # Initialize FSEVAL with both AAD (model_agnostic) and SNN (custom)
     evaluator = FSEVAL(
         output_dir="benchmark_results", 
         avg_steps=5,
@@ -71,7 +68,6 @@ if __name__ == "__main__":
         custom_metrics={"SNN_K5": snn_consistency_k5}
     )
 
-    # Configuration for methods
     methods_list = [
         {
             'name': 'Random', 
@@ -85,13 +81,9 @@ if __name__ == "__main__":
         }
     ]
     
-    # --- 1. Run Unified Benchmark ---
-    # This will generate separate CSVs for AAD (Global structure) 
-    # and SNN_K5 (Local structure preservation).
     print(">>> Starting Integrated Evaluation (Global & Local metrics)...")
     evaluator.run(DATASETS_TO_RUN, methods_list)
 
-    # --- 2. Run Runtime Analysis ---
     print("\n>>> Starting Scalability Analysis...")
     evaluator.timer(
         methods=methods_list, 
@@ -119,7 +111,7 @@ Initializes the evalutation and benchmark object.
 | **`avg_steps`** | 10 | Number of repetitions for stochastic methods.|
 | **`supervised_iter`** | 5 | Number of classifier's runs with different random seeds.|
 | **`unsupervised_iter`** | 10 | Number of clustering runs with different random seeds.|
-| **`eval_type`** | ["supervised", "unsupervised", "model_agnostic"] | "supervised", "unsupervised", "model_agnostic", or "custom" to enable inclusion of custon user-defined metrics. |
+| **`eval_type`** | ["supervised", "unsupervised", "model_agnostic"] | "supervised", "unsupervised", "model_agnostic", or "custom" to enable inclusion of custom user-defined metrics. |
 | **`metrics`** | ["CLSACC", "NMI", "ACC", "AUC", "AAD"] | Evaluation metrics to calculate. |
 | **`custom_metrics`** | {} | User-defined custom evaluation metrics. |
 | **`experiments`** | ["10Percent", "100Percent"] | Which feature ratio grids to evaluate. |
