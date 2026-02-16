@@ -65,7 +65,7 @@ if __name__ == "__main__":
     evaluator = FSEVAL(
         output_dir="benchmark_results", 
         avg_steps=5,
-        eval_type=["supervised, "unsupervised", ""model_agnostic", "custom"],
+        eval_type=["supervised", "unsupervised", "model_agnostic", "custom"],
         custom_metrics={"SNN_K5": snn_consistency_k5}
     )
 
