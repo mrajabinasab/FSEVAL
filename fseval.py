@@ -118,7 +118,7 @@ class FSEVAL:
 
                             if "model_agnostic" in self.eval_type:
                                 try:
-                                    res_aad = AAD(X, indices[:k])
+                                    res_aad = AAD(pd.DataFrame(X), indices[:k])
                                     if "AAD" in current_res: current_res["AAD"] = res_aad
                                 except Exception as e:
                                     print(f"      [AAD Error] {e}")
@@ -208,5 +208,3 @@ class FSEVAL:
             df_results = pd.DataFrame.from_dict(results, orient='index', columns=list(val_range))
             df_results.index.name = 'Method'
             df_results.to_csv(filename)
-
-
