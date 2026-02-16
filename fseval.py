@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from eval import unsupervised_eval, supervised_eval
 from loader import load_dataset
+from pcametric import AAD  # pip install pcametric
 
 class FSEVAL:
     def __init__(self, 
@@ -14,8 +15,9 @@ class FSEVAL:
                  avg_steps=10,
                  supervised_iter=5,
                  unsupervised_iter=10, 
-                 eval_type="both", 
+                 eval_type=["unsupervised", "supervised", "model_agnostic"], 
                  metrics=None, 
+                 custom_metrics=None,
                  experiments=None,
                  save_all=False):
         self.output_dir = output_dir
@@ -23,11 +25,26 @@ class FSEVAL:
         self.avg_steps = avg_steps
         self.supervised_iter = supervised_iter
         self.unsupervised_iter = unsupervised_iter
-        self.eval_type = eval_type
+        self.eval_type = eval_type if isinstance(eval_type, list) else [eval_type]
         self.save_all = save_all
+        self.custom_metrics = custom_metrics if custom_metrics else {}
         
-        all_metrics = ["CLSACC", "NMI", "ACC", "AUC"]
-        self.selected_metrics = metrics if metrics else all_metrics
+        # Mapping evaluation suites to specific metrics
+        self.metric_map = {
+            "unsupervised": ["CLSACC", "NMI"],
+            "supervised": ["ACC", "AUC"],
+            "model_agnostic": ["AAD"],
+            "custom": list(self.custom_metrics.keys())
+        }
+        
+        # Determine metrics to track
+        if metrics:
+            self.selected_metrics = metrics
+        else:
+            self.selected_metrics = []
+            for etype in self.eval_type:
+                if etype in self.metric_map:
+                    self.selected_metrics.extend(self.metric_map[etype])
         
         self.scales = {}
         target_exps = experiments if experiments else ["10Percent", "100Percent"]
@@ -45,8 +62,10 @@ class FSEVAL:
     def _should_skip(self, ds_name, methods):
         for m_info in methods:
             for scale_name in self.scales.keys():
-                last_met = self.selected_metrics[-1]
-                fname = os.path.join(self.output_dir, f"{m_info['name']}_{last_met}_{scale_name}.csv")
+                if not self.selected_metrics: return False
+                # Check the first metric to see if file exists (proxy for completion)
+                check_met = self.selected_metrics[0]
+                fname = os.path.join(self.output_dir, f"{m_info['name']}_{check_met}_{scale_name}.csv")
                 
                 if not os.path.exists(fname):
                     return False
@@ -84,18 +103,43 @@ class FSEVAL:
 
                     for scale_name, percentages in self.scales.items():
                         row = {met: {'Dataset': ds_name} for met in self.selected_metrics}
+                        
                         for p in percentages:
                             k = max(1, min(math.ceil(p * n_features), n_features))
                             X_subset = X[:, indices[:k]]
+                            current_res = {met: np.nan for met in self.selected_metrics}
 
-                            res = {"CLSACC": np.nan, "NMI": np.nan, "ACC": np.nan, "AUC": np.nan}
-                            if self.eval_type in ["unsupervised", "both"]:
-                                res["CLSACC"], res["NMI"] = unsupervised_eval(X_subset, y, avg_steps=self.unsupervised_iter)
-                            if self.eval_type in ["supervised", "both"]:
-                                res["ACC"], res["AUC"] = supervised_eval(X_subset, y, classifier=classifier, cv=self.cv, avg_steps=self.supervised_iter)
+                            # 1. Unsupervised
+                            if "unsupervised" in self.eval_type:
+                                cls, nmi = unsupervised_eval(X_subset, y, avg_steps=self.unsupervised_iter)
+                                if "CLSACC" in current_res: current_res["CLSACC"] = cls
+                                if "NMI" in current_res: current_res["NMI"] = nmi
+                            
+                            # 2. Supervised
+                            if "supervised" in self.eval_type:
+                                acc, auc = supervised_eval(X_subset, y, classifier=classifier, cv=self.cv, avg_steps=self.supervised_iter)
+                                if "ACC" in current_res: current_res["ACC"] = acc
+                                if "AUC" in current_res: current_res["AUC"] = auc
+
+                            # 3. Model Agnostic (AAD)
+                            if "model_agnostic" in self.eval_type:
+                                try:
+                                    res_aad = AAD(X, X_subset)
+                                    if "AAD" in current_res: current_res["AAD"] = res_aad
+                                except Exception as e:
+                                    print(f"      [AAD Error] {e}")
+
+                            # 4. Custom Metrics
+                            if "custom" in self.eval_type:
+                                for c_name, c_func in self.custom_metrics.items():
+                                    try:
+                                        val = c_func(X, X_subset, y)
+                                        if c_name in current_res: current_res[c_name] = val
+                                    except Exception as e:
+                                        print(f"      [Custom Error: {c_name}] {e}")
 
                             for met in self.selected_metrics:
-                                row[met][p] = res[met]
+                                row[met][p] = current_res[met]
                         
                         for met in self.selected_metrics:
                             ds_results[scale_name][met].append(row[met])
@@ -106,7 +150,6 @@ class FSEVAL:
         for scale, metrics in ds_results.items():
             for met_name, rows in metrics.items():
                 df_new = pd.DataFrame(rows)
-                
                 if not self.save_all:
                     df_new = df_new.groupby('Dataset').mean().reset_index()
                 
@@ -116,7 +159,6 @@ class FSEVAL:
                 if os.path.exists(fname):
                     df_old = pd.read_csv(fname)
                     df_old.columns = df_old.columns.astype(str)
-                    
                     if self.save_all:
                         df_final = pd.concat([df_old, df_new], ignore_index=True)
                     else:
@@ -127,6 +169,7 @@ class FSEVAL:
                 df_final.to_csv(fname, index=False)
 
     def timer(self, methods, vary_param='both', time_limit=3600):
+        # ... (Timer code remains unchanged as it measures raw FS performance)
         experiments = []
         if vary_param in ['features', 'both']:
             experiments.append({'name': 'features', 'fixed_val': 100, 'range': range(1000, 20001, 500), 'file': 'time_analysis_features.csv'})
