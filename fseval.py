@@ -2,6 +2,7 @@ import os
 import math
 import time
 import warnings
+import fsdem
 import numpy as np
 import pandas as pd
 from pcametric import AAD 
@@ -17,6 +18,7 @@ class FSEVAL:
                  unsupervised_iter=10, 
                  eval_type=["unsupervised", "supervised", "model_agnostic"], 
                  metrics=None, 
+                 stability=True,
                  custom_metrics=None,
                  experiments=None,
                  save_all=False):
@@ -43,6 +45,12 @@ class FSEVAL:
             for etype in self.eval_type:
                 if etype in self.metric_map:
                     self.selected_metrics.extend(self.metric_map[etype])
+
+        self.stability_metrics = stability
+        if self.stability_metrics is True:
+            self.stability_metrics = list(self.selected_metrics)
+        elif self.stability_metrics is False or self.stability_metrics is None:
+            self.stability_metrics = []
         
         self.scales = {}
         target_exps = experiments if experiments else ["10Percent", "100Percent"]
@@ -138,6 +146,41 @@ class FSEVAL:
                             ds_results[scale_name][met].append(row[met])
 
                 self._save_results(name, ds_results)
+                if self.stability_metrics:
+                    for scale_name, percentages in self.scales.items():
+                        ks = [max(1, min(math.ceil(p * n_features), n_features)) for p in percentages]
+                        for met in self.stability_metrics:
+                            if met not in ds_results[scale_name]:
+                                continue
+                            rows = ds_results[scale_name][met]
+                            if not rows:
+                                continue
+
+                            stab_rows = []
+                            for row_dict in rows:
+                                y_values = [row_dict.get(p, np.nan) for p in percentages]
+                                if len(y_values) < 2 or any(np.isnan(yv) for yv in y_values):
+                                    stab = np.nan
+                                else:
+                                    f, df_der = fsdem.approx_func(ks, y_values)
+                                    stab = fsdem.stability(df_der, start=min(ks), end=max(ks))
+                                stab_rows.append({'Dataset': ds_name, 'Stability': stab})
+
+                            df_stab_new = pd.DataFrame(stab_rows)
+                            if not self.save_all:
+                                df_stab_new = df_stab_new.groupby('Dataset').mean(numeric_only=True).reset_index()
+
+                            fname = os.path.join(self.output_dir, f"{name}_Stability_{met}_{scale_name}.csv")
+                            if os.path.exists(fname):
+                                df_old = pd.read_csv(fname)
+                                df_old.columns = df_old.columns.astype(str)
+                                if self.save_all:
+                                    df_final = pd.concat([df_old, df_stab_new], ignore_index=True)
+                                else:
+                                    df_final = pd.concat([df_old, df_stab_new]).drop_duplicates(subset=['Dataset'], keep='last')
+                            else:
+                                df_final = df_stab_new
+                            df_final.to_csv(fname, index=False)
 
     def _save_results(self, method_name, ds_results):
         for scale, metrics in ds_results.items():
@@ -208,3 +251,4 @@ class FSEVAL:
             df_results = pd.DataFrame.from_dict(results, orient='index', columns=list(val_range))
             df_results.index.name = 'Method'
             df_results.to_csv(filename)
+
