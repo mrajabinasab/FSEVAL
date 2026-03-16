@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Downloads | Resources</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background-color: #f8f9fc; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .card { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); max-width: 600px; width: 90%; text-align: center; }
+        h1 { color: #1e293b; margin-bottom: 30px; }
+        .download-item { display: flex; align-items: center; justify-content: space-between; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 15px; transition: transform 0.2s; }
+        .download-item:hover { transform: translateY(-2px); border-color: #4361ee; }
+        .info { text-align: left; }
+        .info strong { display: block; color: #1e293b; }
+        .info span { font-size: 0.85rem; color: #64748b; }
+        .btn-dl { background: #4361ee; color: white; text-decoration: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; font-size: 0.9rem; }
+        .source-note { margin-top: 25px; font-size: 0.9rem; color: #64748b; }
+        .source-note a { color: #4361ee; text-decoration: none; }
+        .back-link { display: inline-block; margin-top: 30px; color: #64748b; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Download Resources</h1>
+        
+		<div class="download-item">
+			<div class="info">
+				<strong>Benchmark Datasets</strong>
+				<span>23 benchmark datasets (.zip)</span>
+			</div>
+			<a href="/files/datasets.zip" class="btn-dl" download>Download</a>
+		</div>
+
+		<div class="download-item">
+			<div class="info">
+				<strong>Raw Result Files</strong>
+				<span>All CSV performance data (.zip)</span>
+			</div>
+			<a href="/files/results.zip" class="btn-dl" download>Download</a>
+		</div>
+
+        <p class="source-note">
+            Datasets are curated from the <a href="https://jundongl.github.io/scikit-feature/datasets.html" target="_blank">scikit-feature repository</a> and formatted for compatibility with this framework.
+        </p>
+
+        <a href="/" class="back-link">← Back to Dashboard</a>
+    </div>
+</body>
+</html>

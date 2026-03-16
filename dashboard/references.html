@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>References | Feature Selection Framework</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; margin: 0; background-color: #f8f9fc; }
+        .container { max-width: 1000px; margin: 50px auto; padding: 40px; background: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
+        h1 { color: #1e293b; border-bottom: 3px solid #4361ee; padding-bottom: 10px; margin-bottom: 30px; }
+        h2 { font-size: 1.25rem; color: #4361ee; margin-top: 30px; border-left: 4px solid #4361ee; padding-left: 15px; }
+        .ref-list { list-style: none; padding: 0; }
+        .ref-item { padding: 18px; border-bottom: 1px solid #edf2f7; transition: background 0.2s; }
+        .ref-item:hover { background-color: #f1f5f9; border-radius: 6px; }
+        .ref-title { font-weight: 600; color: #1e293b; display: block; margin-bottom: 4px; }
+        .ref-meta { font-size: 0.95rem; color: #64748b; display: block; margin-bottom: 8px; }
+        .tag { display: inline-block; background: #e2e8f0; color: #475569; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; text-transform: uppercase; margin-right: 8px; font-weight: bold; }
+        .doi-link { font-size: 0.85rem; color: #4361ee; text-decoration: none; font-family: monospace; }
+        .doi-link:hover { text-decoration: underline; }
+        .back-link { display: inline-block; margin-top: 40px; color: #64748b; text-decoration: none; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Scientific References</h1>
+        
+        <div class="ref-section">
+            <h2>Metrics & Datasets</h2>
+            <ul class="ref-list">
+                <li class="ref-item">
+                    <span class="tag">Metric</span>
+                    <span class="ref-title">FSDEM: Feature Selection Dynamic Evaluation Metric</span>
+                    <span class="ref-meta">M. Rajabinasab, A. D. Lautrup, T. Hyrup, A. Zimek. <i>SISAP</i>, 2024.</span>
+                    <a href="https://doi.org/10.1007/978-3-031-73132-7_19" class="doi-link" target="_blank">doi:10.1007/978-3-031-73132-7_19</a>
+                </li>
+                <li class="ref-item">
+                    <span class="tag">Resources</span>
+                    <span class="ref-title">Scikit-feature: An Open Source Feature Selection Repository in Python</span>
+                    <span class="ref-meta">J. Li, K. Cheng, S. Wang, et al. <i>Journal of Machine Learning Research</i>, 2017.</span>
+                    <a href="https://jundongl.github.io/scikit-feature/datasets.html" class="doi-link" target="_blank">Visit Repository</a>
+                </li>
+            </ul>
+
+            <h2>Unsupervised Feature Selection Methods</h2>
+            <ul class="ref-list">
+                <li class="ref-item">
+                    <span class="tag">Laplacian Score</span>
+                    <span class="ref-title">Laplacian Score for Feature Selection</span>
+                    <span class="ref-meta">X. He, D. Cai, P. Niyogi. <i>NIPS</i>, 2005.</span>
+                    <a href="https://proceedings.neurips.cc/paper/2005/hash/b5b03f06271f8917685d140bc66896c-Abstract.html" class="doi-link" target="_blank">link:neurips/2005/b5b03f06</a>
+                </li>
+                <li class="ref-item">
+                    <span class="tag">Correlation</span>
+                    <span class="ref-title">Feature Selection for Machine Learning: Comparing a Correlation-Based Filter Approach to the Wrapper</span>
+                    <span class="ref-meta">M. A. Hall, L. A. Smith. <i>FLAIRS Conference</i>, 1999.</span>
+                    <a href="https://aaai.org/Library/FLAIRS/1999/flairs99-044.php" class="doi-link" target="_blank">link:flairs/99/044</a>
+                </li>
+                <li class="ref-item">
+                    <span class="tag">MCFS</span>
+                    <span class="ref-title">Multi-Cluster Feature Selection for Unsupervised Learning</span>
+                    <span class="ref-meta">D. Cai, C. Zhang, X. He. <i>NeurIPS</i>, 2010.</span>
+                    <a href="https://doi.org/10.5555/2997189.2997227" class="doi-link" target="_blank">doi:10.5555/2997189.2997227</a>
+                </li>
+                <li class="ref-item">
+                    <span class="tag">SCFS</span>
+                    <span class="ref-title">Unsupervised feature selection based on adaptive similarity learning and subspace clustering</span>
+                    <span class="ref-meta">M. G. Parsa, H. Zare, M. Ghatee. <i>Eng. Appl. Artif. Intell.</i>, 2020.</span>
+                    <a href="https://doi.org/10.1016/j.engappai.2020.103855" class="doi-link" target="_blank">doi:10.1016/j.engappai.2020.103855</a>
+                </li>
+                <li class="ref-item">
+                    <span class="tag">SOGFS</span>
+                    <span class="ref-title">Structured Optimal Graph Feature Selection</span>
+                    <span class="ref-meta">F. Wu, et al. <i>AAAI Conference on Artificial Intelligence</i>, 2021.</span>
+                    <a href="https://doi.org/10.1609/aaai.v35i11.17242" class="doi-link" target="_blank">doi:10.1609/aaai.v35i11.17242</a>
+                </li>
+                <li class="ref-item">
+                    <span class="tag">LLSRFS</span>
+                    <span class="ref-title">Unsupervised feature selection by learning exponential weights</span>
+                    <span class="ref-meta">C. Wang, J. Wang, Z. Gu, et al. <i>Pattern Recognition</i>, 2024.</span>
+                    <a href="https://doi.org/10.1016/j.patcog.2023.110183" class="doi-link" target="_blank">doi:10.1016/j.patcog.2023.110183</a>
+                </li>
+                <li class="ref-item">
+                    <span class="tag">VCDFS</span>
+                    <span class="ref-title">Unsupervised feature selection based on variance-covariance subspace distance</span>
+                    <span class="ref-meta">S. Karami, F. Saberi-Movahed, et al. <i>Neural Networks</i>, 2023.</span>
+                    <a href="https://doi.org/10.1016/j.neunet.2023.06.018" class="doi-link" target="_blank">doi:10.1016/j.neunet.2023.06.018</a>
+                </li>
+            </ul>
+        </div>
+
+        <a href="/" class="back-link">← Back to Dashboard</a>
+    </div>
+</body>
+</html>
