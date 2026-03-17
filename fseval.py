@@ -108,6 +108,8 @@ class FSEVAL:
                         scores = fs_func(X)
                     if fs_type == "supervised":
                         scores = fs_func(X, y)
+                    else:
+                        raise ValueError("Feature selection algorithm type is not valid.")
                     indices = np.argsort(scores)[::-1]
 
                     for scale_name, percentages in self.scales.items():
@@ -249,6 +251,8 @@ class FSEVAL:
                             func(X)
                         if type == "supervised":
                             func(X, pd.Series(np.zeros(X.shape[0])))
+                        else:
+                            raise ValueError("Feature selection algorithm type is not valid.")
                         duration = time.time() - start_time
                         if duration > time_limit:
                             timed_out_methods.add(name)
