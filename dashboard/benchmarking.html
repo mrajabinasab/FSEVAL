@@ -149,11 +149,13 @@
     methods_list = [
         {
             <span class="string">'name'</span>: <span class="string">'Random'</span>,
+            <span class="string">'type'</span>: <span class="string">'unsupervised'</span>,
             <span class="string">'stochastic'</span>: <span class="bool">True</span>,
             <span class="string">'func'</span>: evaluator.random_baseline
         },
         {
             <span class="string">'name'</span>: <span class="string">'Variance_Baseline'</span>,
+            <span class="string">'type'</span>: <span class="string">'unsupervised'</span>,
             <span class="string">'stochastic'</span>: <span class="bool">False</span>,
             <span class="string">'func'</span>: <span class="keyword">lambda</span> X: np.var(X, axis=<span class="number">0</span>)
         }
