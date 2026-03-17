@@ -96,6 +96,7 @@ class FSEVAL:
 
             for m_info in methods:
                 name = m_info['name']
+                fs_type = m_info['type']
                 fs_func = m_info['func']
                 repeats = self.avg_steps if m_info.get('stochastic', False) else 1
                 
@@ -103,7 +104,10 @@ class FSEVAL:
 
                 for r in range(repeats):
                     print(f"  [{name}] {ds_name} - Run {r+1}/{repeats}")
-                    scores = fs_func(X)
+                    if fs_type == "unsupervised":
+                        scores = fs_func(X)
+                    if fs_type == "supervised":
+                        scores = fs_func(X, y)
                     indices = np.argsort(scores)[::-1]
 
                     for scale_name, percentages in self.scales.items():
@@ -233,6 +237,7 @@ class FSEVAL:
 
                 for m_info in methods:
                     name = m_info['name']
+                    type = m_info['type']
                     func = m_info['func']
                     if name in timed_out_methods:
                         results[name].append(-1)
@@ -240,7 +245,10 @@ class FSEVAL:
                     
                     try:
                         start_time = time.time()
-                        func(X)
+                        if type == "unsupervised":
+                            func(X)
+                        if type == "supervised":
+                            func(X, pd.Series(np.zeros(X.shape[0])))
                         duration = time.time() - start_time
                         if duration > time_limit:
                             timed_out_methods.add(name)
