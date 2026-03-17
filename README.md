@@ -71,12 +71,14 @@ if __name__ == "__main__":
 
     methods_list = [
         {
-            'name': 'Random', 
+            'name': 'Random',
+            'type': 'unsupervised', 
             'stochastic': True, 
             'func': evaluator.random_baseline
         },
         {
-            'name': 'Variance_Baseline', 
+            'name': 'Variance_Baseline',
+            'type': 'unsupervised', 
             'stochastic': False, 
             'func': lambda X: np.var(X, axis=0)
         }
@@ -144,7 +146,7 @@ There is a Feature Selection Evaluation Dashboard based on the benchmarks provid
 
 https://fseval.imada.sdu.dk/
 
-The dashboard offers a collection of useful analytic tools to provide comprehensive and comparative insights into the performance of your feature selection method(s). You can also download the dashboard source code, which is included in the dashboard folder and use it locally.
+The dashboard offers a collection of useful analytic tools to provide comprehensive and comparative insights into the performance of your feature selection method(s). You can also download the dashboard source code from the GitHub repository, which is included in the dashboard folder and use it locally.
 
 #  Citation
 
