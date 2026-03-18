@@ -137,7 +137,7 @@ Runs a runtime analysis on the methods.
 | Argument | Type | Description |
 | :--- | :--- | :--- |
 | **`methods`** | List[dict] | "[{""name"": str, ""func"": callable, ""stochastic"": bool}, ...]" |
-| **`vary_param`** | ["CLSACC", "NMI", "ACC", "AUC"] | "features", "instances", or "both". |
+| **`vary_param`** | "both" | "features", "instances", or "both". |
 | **`time_limit`** | 3600 | Terminate the method after reecording first time it exceeds this limit. |
 
 #  Dashboard
