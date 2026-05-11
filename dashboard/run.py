@@ -357,7 +357,7 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
     unique_datasets = sorted(list(all_ds - set(exclusion.get('datasets', []))))
 
     active_ds = selected_ds if selected_ds in unique_datasets else (unique_datasets[0] if unique_datasets else None)
-
+    is_lower_better = (metric == 'AAD')
     line_fig = go.Figure()
     if active_ds:
         for key in keys:
@@ -410,7 +410,7 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
                 if not np.isnan(val):
                     scores.append((k.split('|')[0], val))
         if scores:
-            sorted_vals = sorted([v for _, v in scores], reverse=True)
+            sorted_vals = sorted([v for _, v in scores], reverse=not is_lower_better)
             rankings[ds] = {
                 'best': sorted_vals[0] if sorted_vals else None,
                 'second': sorted_vals[1] if len(sorted_vals) > 1 else None,
@@ -541,7 +541,9 @@ def create_cd_figure(full_data, keys, metric, rng, excluded_ds):
         fig = go.Figure(); fig.update_layout(title="Not enough data for CD"); return fig
 
     perf_matrix = np.array(perf_matrix)
-    ranks = np.apply_along_axis(rankdata, 1, -perf_matrix)
+    is_lower_better = (metric == 'AAD')
+    ranking_matrix = perf_matrix if is_lower_better else -perf_matrix
+    ranks = np.apply_along_axis(rankdata, 1, ranking_matrix)
     avg_ranks = ranks.mean(axis=0)
 
     n_ds, n_m = perf_matrix.shape
@@ -689,8 +691,10 @@ def download_cd_plot(n, state, custom):
         perf_matrix.append(row)
     if len(perf_matrix) < 3: raise PreventUpdate
     perf_matrix = np.array(perf_matrix)
-    ranks = np.apply_along_axis(rankdata, 1, -perf_matrix)
-    avg_ranks = ranks.mean(axis=0); n_ds, n_m = perf_matrix.shape
+    is_lower_better = (metric == 'AAD')
+    ranking_matrix = perf_matrix if is_lower_better else -perf_matrix
+    ranks = np.apply_along_axis(rankdata, 1, ranking_matrix)
+    avg_ranks = ranks.mean(axis=0); n_ds, n_m = perf_matrix.shape        
     cd = 2.728 * np.sqrt(n_m * (n_m + 1) / (6.0 * n_ds))
     buf = io.BytesIO(); fig_height = max(7.0, 0.65 * n_m + 2.8)
     fig, ax = plt.subplots(figsize=(12.5, fig_height), dpi=160)
