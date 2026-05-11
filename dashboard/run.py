@@ -46,13 +46,10 @@ def serve_references():
 def download_file(filename):
     return send_from_directory('files', filename, as_attachment=True)
 
-# ────────────────────────────────────────────────
-# Configuration
-# ────────────────────────────────────────────────
 
 DATA_DIR = 'resources'
 
-BENCHMARK_METRICS = ['CLSACC', 'NMI', 'ACC', 'AUC']
+BENCHMARK_METRICS = ['CLSACC', 'NMI', 'ACC', 'AUC', 'AAD']
 BENCHMARK_METHODS = ['Variance', 'Correlation', 'Laplacian', 'Random', 'VCSDFS', 'LIDFS', 'SCFS', 'MCFS']
 
 STYLE_MAP = {
@@ -67,19 +64,17 @@ STYLE_MAP = {
 }
 
 PERCENTAGE_RANGES = {
-    '10Percent':  {'label': '0.5% – 10%',  'cols': [str(np.round(p, 3)) for p in np.arange(0.005, 0.1001, 0.005)]},
-    '100Percent': {'label': '5% – 100%',   'cols': [str(np.round(p, 2)) for p in np.arange(0.05, 1.001, 0.05)]}
+    '10Percent':  {'label': '0.5% to 10%',  'cols': [str(np.round(p, 3)) for p in np.arange(0.005, 0.1001, 0.005)]},
+    '100Percent': {'label': '5% to 100%',   'cols': [str(np.round(p, 2)) for p in np.arange(0.05, 1.001, 0.05)]}
 }
 
-# Runtime Plot Constants
 MARKERS_LIST = ['o', 's', 'D', '^', 'v', 'p', '*', 'X', 'P', 'H']
 DEFAULT_COLORS = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
-# ─── Data Loading ─────────────────────────────────────────────
-
 def load_data():
     data_dict = {}
-    pattern = re.compile(r'^(.+?)_(CLSACC|NMI|ACC|AUC)_(10Percent|100Percent)\.csv$')
+    # Updated pattern to capture Stability as well
+    pattern = re.compile(r'^(.+?)_(CLSACC|NMI|ACC|AUC|AAD|Stability_CLSACC|Stability_NMI|Stability_ACC|Stability_AUC|Stability_AAD)_(10Percent|100Percent)\.csv$')
     if not os.path.exists(DATA_DIR):
         return data_dict
     for f in os.listdir(DATA_DIR):
@@ -93,7 +88,6 @@ def load_data():
 
 INITIAL_DATA = load_data()
 
-# Runtime data (built-in) - loaded once
 RUNTIME_DATA = {'features': {}, 'instances': {}}
 
 def load_runtime_data():
@@ -108,7 +102,6 @@ def load_runtime_data():
 
 load_runtime_data()
 
-# ─── Styles ─────────────────────────────────────────────
 
 BLUE_BTN   = {'padding': '10px 22px', 'cursor': 'pointer', 'backgroundColor': '#4a6bff', 'color': 'white', 'border': 'none', 'borderRadius': '6px', 'fontWeight': '600', 'fontSize': '14px'}
 ORANGE_BTN = {'padding': '10px 22px', 'cursor': 'pointer', 'backgroundColor': '#f39c12', 'color': 'white', 'border': 'none', 'borderRadius': '6px', 'fontWeight': '600', 'fontSize': '14px'}
@@ -134,10 +127,6 @@ CARD_STYLE = {
     'padding': '20px'
 }
 
-# ────────────────────────────────────────────────
-# Layout
-# ────────────────────────────────────────────────
-
 app.layout = html.Div(style={'backgroundColor': '#f8f9fc', 'minHeight': '100vh', 'fontFamily': "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"}, children=[
 
     dcc.Store(id='exclusion-store', data={'datasets': [], 'methods': []}),
@@ -146,8 +135,8 @@ app.layout = html.Div(style={'backgroundColor': '#f8f9fc', 'minHeight': '100vh',
     dcc.Download(id='download-line-plot'),
     dcc.Download(id='download-cd-plot'),
     dcc.Download(id='download-runtime-plot'),
+    dcc.Download(id='download-stability-plot'),
 
-    # Header
     html.Div(style=HEADER_STYLE, children=[
         html.Div([
             html.H1('Feature Selection Evaluation', style={'margin': '0', 'fontSize': '1.9rem', 'fontWeight': '700', 'color': '#1e293b'}),
@@ -169,7 +158,6 @@ app.layout = html.Div(style={'backgroundColor': '#f8f9fc', 'minHeight': '100vh',
         ])
     ]),
 
-    # Exclusion panel
     html.Div(id='exclude-container', style={'display': 'none', 'padding': '16px 32px', 'backgroundColor': '#fefce8', 'borderBottom': '1px solid #fef08a'}, children=[
         html.Div(style={'maxWidth': '640px', 'margin': '0 auto'}, children=[
             dcc.Textarea(id='exclude-input', value='DATASETS = []\nMETHODS = []', style={'width': '100%', 'height': '90px', 'fontFamily': 'monospace', 'fontSize': '13px', 'padding': '8px'}),
@@ -177,7 +165,6 @@ app.layout = html.Div(style={'backgroundColor': '#f8f9fc', 'minHeight': '100vh',
         ])
     ]),
 
-    # Main content
     html.Div(style={'padding': '24px 32px', 'display': 'flex', 'flexDirection': 'column', 'gap': '24px'}, children=[
 
         html.Div(style=CARD_STYLE, children=[
@@ -204,7 +191,13 @@ app.layout = html.Div(style={'backgroundColor': '#f8f9fc', 'minHeight': '100vh',
                     dcc.Textarea(id='latex-output', style={'display': 'none', 'width': '100%', 'height': '260px', 'marginTop': '16px', 'fontSize': '13px', 'fontFamily': 'monospace', 'padding': '10px'})
                 ])
             ]),
-
+            html.Div(style=CARD_STYLE, children=[
+                html.H3(id='stability-title', style={'margin': '0 0 16px 0', 'fontSize': '1.32rem', 'borderLeft': '5px solid #f39c12', 'paddingLeft': '12px', 'color': '#1e293b'}),
+                dcc.Graph(id='stability-bar-plot', style={'height': '450px'}),
+                html.Div(style={'textAlign': 'center', 'marginTop': '12px'}, children=[
+                    html.Button('Download Stability Plot (PDF)', id='btn-download-stability', style=GREEN_BTN)
+                ])
+            ]),
             html.Div(style=CARD_STYLE, children=[
                 html.H3("Critical Difference Diagram (Nemenyi post-hoc)", style={'margin': '0 0 16px 0', 'fontSize': '1.32rem', 'borderLeft': '5px solid #8e44ad', 'paddingLeft': '12px', 'color': '#1e293b'}),
                 dcc.Graph(id='cd-diagram', style={'height': '560px', 'marginBottom': '12px'}),
@@ -233,25 +226,22 @@ app.layout = html.Div(style={'backgroundColor': '#f8f9fc', 'minHeight': '100vh',
     ])
 ])
 
-# ────────────────────────────────────────────────
-# Helpers
-# ────────────────────────────────────────────────
 
 def get_filtered_data(metric, rng, exclusion, custom):
     full = {**INITIAL_DATA, **(custom or {})}
     ex_methods = exclusion.get('methods', [])
-    keys = [k for k in full if f"|{metric}|{rng}" in k and k.split('|')[0] not in ex_methods]
-    return full, keys
+    perf_keys = [k for k in full if f"|{metric}|{rng}" in k
+                 and 'Stability' not in k
+                 and k.split('|')[0] not in ex_methods]
+    return full, perf_keys
 
 def get_effective_runtime_data(rtype, exclusion, custom):
     base = RUNTIME_DATA.get(rtype, {})
     custom_key = f'custom_runtime_{rtype}'
     custom_data = (custom or {}).get(custom_key, {})
     
-    # Merge: custom overrides built-in
     merged = {**base, **custom_data}
     
-    # Apply exclusion
     excluded_methods = set(exclusion.get('methods', []))
     filtered = {m: v for m, v in merged.items() if m not in excluded_methods}
     
@@ -261,9 +251,6 @@ def get_effective_runtime_data(rtype, exclusion, custom):
     df = pd.DataFrame.from_dict(filtered, orient='index').reset_index(names='Method')
     return df
 
-# ────────────────────────────────────────────────
-# Callbacks
-# ────────────────────────────────────────────────
 
 @app.callback(
     [Output('exclude-container', 'style'), Output('exclusion-store', 'data')],
@@ -299,7 +286,6 @@ def store_uploaded_data(contents, filenames, current):
         _, b64 = content.split(',')
         decoded = base64.b64decode(b64)
         
-        # Performance files
         match = re.match(r'^(.+?)_(CLSACC|NMI|ACC|AUC)_(10Percent|100Percent)\.csv$', fname)
         if match:
             method, metric, suffix = match.groups()
@@ -309,7 +295,6 @@ def store_uploaded_data(contents, filenames, current):
             data[key] = df.to_dict('records')
             continue
         
-        # Runtime files
         content_str = decoded.decode('utf-8')
         if fname == "time_analysis_features.csv":
             df = pd.read_csv(io.StringIO(content_str))
@@ -345,7 +330,9 @@ def sync_state_for_download(metric, rng, ds, exclusion, custom):
      Output('dataset-dropdown', 'value'),
      Output('table-title', 'children'),
      Output('cd-diagram', 'figure'),
-     Output('runtime-plot', 'figure')],
+     Output('runtime-plot', 'figure'),
+     Output('stability-bar-plot', 'figure'),  
+     Output('stability-title', 'children')],
     [Input('dataset-dropdown', 'value'),
      Input('metric-dropdown', 'value'),
      Input('range-dropdown', 'value'),
@@ -359,7 +346,7 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
     empty = go.Figure(); empty.update_layout(title="No data available")
     
     if not keys:
-        return empty, [], [], [], None, "No data", empty, empty
+        return empty, [], [], [], None, "No data", empty, empty, empty, "No data"
 
     p_cols = PERCENTAGE_RANGES[rng]['cols']
     x_labels = [f'{float(c)*100:g}%' for c in p_cols]
@@ -371,7 +358,6 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
 
     active_ds = selected_ds if selected_ds in unique_datasets else (unique_datasets[0] if unique_datasets else None)
 
-    # ─── Line plot ────────────────────────────────────────
     line_fig = go.Figure()
     if active_ds:
         for key in keys:
@@ -399,8 +385,8 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
     line_fig.update_layout(
         template='plotly_white',
         yaxis=dict(
-            range=[0, 1.05],
-	        autorange=False,
+            range=[0, 1.05] if metric != 'AAD' else None,
+            autorange=metric == 'AAD',
             title="Performance",
             showgrid=True,
             gridcolor='rgba(210, 210, 220, 0.65)',
@@ -412,8 +398,6 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
         margin=dict(l=50, r=30, t=20, b=50)
     )
 
-
-    # ─── Table ────────────────────────────────────────────
     rows = []
     rankings = {}
     for ds in unique_datasets:
@@ -440,7 +424,7 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
             info = rankings.get(ds, {})
             val = info.get('lookup', {}).get(m)
             if val is None:
-                row[ds] = "—"
+                row[ds] = "â€”"
             else:
                 fmt = f"{val:.4f}"
                 if val == info.get('best'):
@@ -453,10 +437,44 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
 
     columns = [{"name": c, "id": c, "presentation": "markdown"} for c in ['Method'] + unique_datasets]
 
-    # ─── CD figure ────────────────────────────────────────
+    stab_fig = go.Figure()
+    stab_title = f"Stability Analysis: {metric}"
+    
+    if active_ds:
+        stab_methods = []
+        stab_values = []
+        stab_colors = []
+
+        for m in methods:
+            stab_key = f"{m}|Stability_{metric}|{rng}"
+            if stab_key in full_data:
+                df_s = pd.DataFrame(full_data[stab_key])
+                sub_s = df_s[df_s['Dataset'] == active_ds]
+                if not sub_s.empty:
+                    val = sub_s['Stability'].iloc[0]
+                    stab_methods.append(m)
+                    stab_values.append(val)
+                    stab_colors.append(STYLE_MAP.get(m, {'color': '#666'})['color'])
+        
+        if stab_methods:
+            stab_fig.add_trace(go.Bar(
+                x=stab_methods,
+                y=stab_values,
+                marker_color=stab_colors,
+                text=[f"{v:.4f}" for v in stab_values],
+                textposition='auto'
+            ))
+            stab_fig.update_layout(
+                template='plotly_white',
+                xaxis_title="Method",
+                yaxis_title="Stability Score",
+                margin=dict(l=50, r=30, t=20, b=50)
+            )
+        else:
+            stab_fig.update_layout(title="No Stability data found for this selection")
+
     cd_fig = create_cd_figure(full_data, keys, metric, rng, exclusion.get('datasets', []))
 
-    # ─── Runtime plot ─────────────────────────────────────
     rt_fig = go.Figure()
     df_rt = get_effective_runtime_data(rtype, exclusion, custom or {})
     
@@ -493,7 +511,8 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
 
     title = f"Metric: {metric}   |   {PERCENTAGE_RANGES[rng]['label']}"
 
-    return line_fig, rows, columns, [{'label': d, 'value': d} for d in unique_datasets], active_ds, title, cd_fig, rt_fig
+    return line_fig, rows, columns, [{'label': d, 'value': d} for d in unique_datasets], \
+           active_ds, title, cd_fig, rt_fig, stab_fig, stab_title
 
 def create_cd_figure(full_data, keys, metric, rng, excluded_ds):
     if not keys:
@@ -553,7 +572,6 @@ def create_cd_figure(full_data, keys, metric, rng, excluded_ds):
     )
     return fig
 
-# ─── Download Callbacks ───────────────────────────────────────
 
 @app.callback(
     Output('download-line-plot', 'data'),
@@ -579,20 +597,19 @@ def download_line_plot(n, state, custom):
         if sub.empty: continue
         y = sub[p_cols].apply(pd.to_numeric).mean().values
         s = STYLE_MAP.get(m, {'color': '#555', 'plt': 'o'})
-        
-        # ─── Add shaded area for Random method ───────────────────────
+
         if m == 'Random':
             std = sub[p_cols].apply(pd.to_numeric).std().values
             ax.fill_between(
                 x_vals, y - std, y + std,
                 color='#4361ee', alpha=0.2, edgecolor='none', linewidth=0
             )
-        # ──────────────────────────────────────────────────────────────
         
         ax.plot(x_vals, y, label=m, marker=s['plt'], color=s['color'], lw=2.4)
     
     ax.grid(axis='y', linestyle='--', linewidth=0.7, alpha=0.6, color='gray')
-    ax.set_ylim(0, 1.05)
+    if metric != 'AAD':
+        ax.set_ylim(0, 1.05)
     ax.set_xlabel("Selected features (%)")
     ax.set_ylabel("Performance")
     ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=10)
@@ -601,6 +618,50 @@ def download_line_plot(n, state, custom):
     buf.seek(0)
     plt.close(fig)
     return dcc.send_bytes(buf.getvalue(), filename=f"line_{ds}_{metric}_{rng}.pdf")
+
+@app.callback(
+    Output('download-stability-plot', 'data'),
+    Input('btn-download-stability', 'n_clicks'),
+    [State('state-for-download', 'data'), State('custom-data-store', 'data')],
+    prevent_initial_call=True
+    )
+
+def download_stability_plot(n, state, custom):
+        if not n or not state: raise PreventUpdate
+        metric, rng = state['metric'], state['range']
+        ds = state.get('selected_dataset')
+        excl = state.get('exclusion', {'methods': [], 'datasets': []})
+        full, _ = get_filtered_data(metric, rng, excl, custom)
+        if not ds: raise PreventUpdate
+
+        methods = sorted({k.split('|')[0] for k in full if f"|{metric}|{rng}" in k and 'Stability' not in k})
+        stab_methods, stab_values, stab_colors = [], [], []
+
+        for m in methods:
+            stab_key = f"{m}|Stability_{metric}|{rng}"
+            if stab_key in full:
+                df_s = pd.DataFrame(full[stab_key])
+                sub_s = df_s[df_s['Dataset'] == ds]
+                if not sub_s.empty:
+                    stab_methods.append(m)
+                    stab_values.append(sub_s['Stability'].iloc[0])
+                    stab_colors.append(STYLE_MAP.get(m, {'color': '#666'})['color'])
+
+        if not stab_methods: raise PreventUpdate
+
+        buf = io.BytesIO()
+        fig, ax = plt.subplots(figsize=(10, 5), dpi=150)
+        bars = ax.bar(stab_methods, stab_values, color=stab_colors)
+        ax.bar_label(bars, fmt='%.4f', padding=3, fontsize=9)
+        ax.set_xlabel("Method")
+        ax.set_ylabel("Stability Score")
+        ax.set_title(f"Stability: {metric} | {ds} | {PERCENTAGE_RANGES[rng]['label']}")
+        ax.grid(axis='y', linestyle='--', linewidth=0.7, alpha=0.6, color='gray')
+        plt.tight_layout()
+        plt.savefig(buf, format='pdf', bbox_inches='tight')
+        buf.seek(0)
+        plt.close(fig)
+        return dcc.send_bytes(buf.getvalue(), filename=f"stability_{ds}_{metric}_{rng}.pdf")
 
 @app.callback(
     Output('download-cd-plot', 'data'),
