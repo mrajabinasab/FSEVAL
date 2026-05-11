@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Documentation - Feature Selection Evaluation Dashboard</title>
+    <title>Documentation - FSEVAL Pro Dashboard</title>
     <style>
         body { 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
@@ -102,97 +102,57 @@
 </head>
 <body>
     <div class="container">
-        <h1>Documentation</h1>
+        <h1>Dashboard Documentation</h1>
         
-        <p>This dashboard enables detailed evaluation and comparison of feature selection algorithms across multiple datasets, metrics, and feature selection ratios. It supports both built-in benchmark results and user-uploaded custom data.</p>
+        <p>This dashboard provides a comprehensive interface for evaluating feature selection algorithms. It visualizes performance trends, statistical rankings, computational scalability, and selection stability.</p>
 
         <h2>Main Controls</h2>
         <ul>
-            <li><strong>Dataset</strong>: Select which dataset to visualize in the Performance Curves.</li>
-            <li><strong>Metric</strong>: Choose from CLSACC (Classification Accuracy), NMI (Normalized Mutual Information), ACC (Clustering Accuracy), or AUC (Area Under Curve).</li>
-            <li><strong>Range</strong>: 
-                <ul>
-                    <li><code>10Percent</code>: Fine-grained from 0.5% to 10% (step 0.5%)</li>
-                    <li><code>100Percent</code>: Coarse-grained from 5% to 100% (step 5%)</li>
-                </ul>
-            </li>
-            <li><strong>Runtime Type</strong> (for Runtime plot): Toggle between <strong>Instances Experiment</strong> and <strong>Features Experiment</strong>.</li>
+            <li><strong>Dataset</strong>: Filters all charts to a specific target dataset.</li>
+            <li><strong>Metric</strong>: CLSACC, NMI, ACC, AUC, or AAD.</li>
+            <li><strong>Range</strong>: Toggle between <code>10Percent</code> (high resolution) and <code>100Percent</code> (full spectrum) scales.</li>
         </ul>
 
         <h2>Core Features</h2>
         <div class="feature-grid">
             <div class="feature-card">
-                <strong>Performance Curves (Line Plot)</strong>
-                Shows how each method's performance changes as more features are selected. Random method includes a shaded confidence band (±1 std). Horizontal gridlines aid readability.
+                <strong>Performance Curves</strong>
+                Visualizes accuracy or error metrics as a function of the feature selection ratio.
             </div>
             <div class="feature-card">
-                <strong>Score Table</strong>
-                Displays average performance per dataset. Best result is bolded, second-best is underlined. Supports direct copy-paste into documents.
+                <strong>Stability Analysis</strong>
+                Displays a bar chart representing the Consistency Index of selected features across data perturbations.
             </div>
             <div class="feature-card">
-                <strong>LaTeX Table Generator</strong>
-                Converts the score table into publication-ready LaTeX code, preserving bold and underline formatting.
+                <strong>Statistical Ranking</strong>
+                Critical Difference (CD) Diagrams based on average ranks across all datasets to confirm statistical significance.
             </div>
             <div class="feature-card">
-                <strong>Critical Difference Diagram</strong>
-                Uses Nemenyi post-hoc test after Friedman test. Methods connected by a thick horizontal bar are not significantly different. Lower average rank = better.
-            </div>
-            <div class="feature-card">
-                <strong>Runtime Scalability Analysis</strong>
-                Visualizes runtime vs. number of instances or features (log-scale y-axis). Helps assess computational efficiency and scalability of each method.
+                <strong>Computational Scalability</strong>
+                Runtime analysis with linear and logarithmic scaling to identify algorithm bottlenecks.
             </div>
         </div>
 
-        <h2>Data Format Requirements</h2>
-        <p>Files must follow this exact naming convention:</p>
-        <p><code>Method_Metric_Range.csv</code><br>
-        Example: <code>VCSDFS_CLSACC_10Percent.csv</code></p>
+        <h2>Data Naming Conventions</h2>
+        <p>The dashboard relies on strict naming to parse files automatically:</p>
         
-        <p>The CSV must contain:</p>
-        <ul>
-            <li>A column named <code>Dataset</code></li>
-            <li>Columns named with percentage values as strings (e.g., <code>0.005</code>, <code>0.01</code>, ..., <code>1.0</code>)</li>
-            <li>Each row corresponds to one dataset with performance values at each percentage level</li>
-        </ul>
+        <h3>Performance Data</h3>
+        <p><code>{Method}_{Metric}_{Range}.csv</code></p>
+        <p>Example: <code>VCSDFS_AAD_10Percent.csv</code></p>
+        
+        <h3>Stability Data</h3>
+        <p><code>{Method}_Stability_{Metric}_{Range}.csv</code></p>
+        <p>Example: <code>VCSDFS_Stability_ACC_100Percent.csv</code></p>
 
         <div class="note">
-            <strong>Note:</strong> Custom files are merged with built-in benchmark data. Duplicate method+metric+range combinations will be overridden by uploaded files.
+            <strong>Columns Required:</strong> Performance files must have a <code>Dataset</code> column and numeric percentage columns (e.g., '0.05'). Stability files must have <code>Dataset</code> and <code>Stability</code> columns.
         </div>
 
-        <h2>Import Custom Data</h2>
-        <p>Click the <strong>Import</strong> button (orange) to upload one or multiple CSV files. Supported formats are exactly as described above. After upload, the dashboard automatically refreshes to include your data alongside built-in benchmarks.</p>
+        <h2>Detailed Score Table</h2>
+        <p>The score table provides the raw data behind the curves. It includes an average score column which represents the area under the performance curve (based on FSDEM), used for overall ranking.</p>
 
-        <h2>Exclude Datasets or Methods</h2>
-        <p>Click <strong>Exclude</strong> (orange) to open the exclusion panel. Use Python-style list syntax:</p>
-        <pre style="background:#f1f5f9;padding:14px;border-radius:6px;font-family:monospace;font-size:0.95rem;">
-DATASETS = ["Yale", "ALLAML"]
-METHODS = ["Random", "Variance", "Laplacian"]
-        </pre>
-        <p>Click <strong>Apply Exclusion</strong>. The excluded items will be removed from all plots, tables, and diagrams until you clear the list or reload the page.</p>
-
-        <h2>Runtime Scalability Analysis</h2>
-        <p>This section shows how runtime grows with dataset size:</p>
-        <ul>
-            <li><strong>Features Experiment</strong>: Runtime vs. number of features (fixed instances)</li>
-            <li><strong>Instances Experiment</strong>: Runtime vs. number of instances (fixed features)</li>
-        </ul>
-        <p>Y-axis is logarithmic to better visualize wide runtime ranges. Missing values (-1) are automatically skipped. The plot is also downloadable as PDF.</p>
-
-        <h2>Download Options</h2>
-        <ul>
-            <li><strong>Download Line Plot (PDF)</strong> – Current dataset + metric curve with gridlines and legend</li>
-            <li><strong>Download CD Diagram (PDF)</strong> – Critical difference diagram</li>
-            <li><strong>Download Runtime Plot (PDF)</strong> – Scalability plot with single-line legend below</li>
-        </ul>
-
-        <h2>Tips &amp; Best Practices</h2>
-        <ul>
-            <li>Use <code>10Percent</code> range for fine-grained analysis in low-selection regimes.</li>
-            <li>Use <code>100Percent</code> for overall performance overview.</li>
-            <li>Check the CD diagram to confirm statistical significance of ranking differences.</li>
-            <li>For publication, generate LaTeX tables and copy directly into your paper.</li>
-            <li>Runtime plots help identify methods that scale poorly with large datasets.</li>
-        </ul>
+        <h2>Publication Tools</h2>
+        <p>Charts can be exported directly to PDF for inclusion in research papers. The dashboard also automatically styles the "Best" result in the data table for easy identification during analysis.</p>
 
         <a href="/" class="back-link">← Back to Dashboard</a>
     </div>
