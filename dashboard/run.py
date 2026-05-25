@@ -10,7 +10,10 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import itertools
-from scipy.stats import rankdata
+import networkx as nx
+import math
+import operator
+from scipy.stats import rankdata, studentized_range
 from dash.exceptions import PreventUpdate
 from flask import send_from_directory
 
@@ -42,6 +45,18 @@ def serve_downloads():
 def serve_references():
     return send_from_directory('.', 'references.html')
 
+@server.route('/random/index.html')
+def serve_random_file():
+    return send_from_directory('random', 'index.html')
+
+@server.route('/random/')
+def serve_random_dir():
+    return send_from_directory('random', 'index.html')
+
+@server.route('/random/<path:filename>')
+def serve_random_assets(filename):
+    return send_from_directory('random', filename)
+
 @server.route('/files/<path:filename>')
 def download_file(filename):
     return send_from_directory('files', filename, as_attachment=True)
@@ -71,9 +86,142 @@ PERCENTAGE_RANGES = {
 MARKERS_LIST = ['o', 's', 'D', '^', 'v', 'p', '*', 'X', 'P', 'H']
 DEFAULT_COLORS = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
+
+class UnifiedPlotter:
+    @staticmethod
+    def graph_ranks(avranks, names, p_values=None, cd=None, title="", name="", color_mode='color'):
+        plt.style.use('default')
+        nnames = list(names)
+        sums = np.array(avranks)
+        k = len(sums)
+
+        if color_mode == 'bw':
+            colors = ['black'] * k
+        else:
+            colormap = matplotlib.colormaps['Dark2']
+            colors = [colormap(i / k) for i in range(k)]
+
+        lowv = min(1, int(math.floor(min(sums))))
+        highv = max(k, int(math.ceil(max(sums))))
+
+        title_gap   = 0.07
+        cline       = 0.32
+        step_height = 0.16
+        bottom_pad  = 0.12
+        mid = math.ceil(k / 2)
+
+        g = nx.Graph()
+        g.add_nodes_from(nnames)
+
+        if cd is not None:
+            for i in range(k):
+                for j in range(i + 1, k):
+                    if abs(sums[i] - sums[j]) < cd:
+                        g.add_edge(nnames[i], nnames[j])
+        elif p_values is not None:
+            for p in p_values:
+                if not p[3]:
+                    g.add_edge(p[0], p[1])
+
+        cliques = sorted(
+            list(nx.find_cliques(g)),
+            key=lambda x: np.min([sums[nnames.index(n)] for n in x])
+        )
+        active_cliques = [c for c in cliques if len(c) > 1]
+
+        curr_clq_y = cline + 0.08
+        for _ in active_cliques:
+            curr_clq_y += 0.09
+
+        sorted_idx    = np.argsort(sums)
+        label_elbow_y = curr_clq_y + 0.02
+
+        label_ys = []
+        for i in range(k):
+            if i < mid:
+                ly = label_elbow_y + i * step_height
+            else:
+                ly = label_elbow_y + (k - i - 1) * step_height
+            label_ys.append(ly)
+
+        max_label_y = max(label_ys)
+        true_max_y  = max_label_y + bottom_pad
+
+        width      = 12
+        fig_height = true_max_y * 3.5
+
+        fig = plt.figure(figsize=(width, fig_height))
+        ax  = fig.add_axes([0, 0, 1, 1])
+        ax.set_axis_off()
+        ax.set_xlim(0, 1)
+        ax.set_ylim(true_max_y, 0)
+
+        textspace  = 3.2
+        scalewidth = width - 2 * textspace
+
+        def xpos(rank):
+            rel = (rank - lowv) / (highv - lowv) if highv > lowv else 0
+            return (textspace + scalewidth * (1 - rel)) / width
+
+        display_title = f"{name} - {title}"
+        ax.text(0.5, title_gap, display_title,
+                ha='center', va='top',
+                fontsize=24, fontweight='bold')
+
+        ax.plot([textspace / width, (width - textspace) / width],
+                [cline, cline], color='black', lw=3)
+
+        midv = (lowv + highv) / 2.0
+        for val, label in [(lowv, str(lowv)),
+                           (midv, f'{midv:.1f}' if midv != int(midv) else str(int(midv))),
+                           (highv, str(highv))]:
+            p = xpos(val)
+            ax.plot([p, p], [cline - 0.03, cline], color='black', lw=2)
+            ax.text(p, cline - 0.04, label,
+                    ha='center', va='bottom',
+                    fontsize=14, fontweight='bold')
+
+        curr_clq_y = cline + 0.08
+        for clq in active_cliques:
+            r_vals = [sums[nnames.index(n)] for n in clq]
+            p1, p2 = xpos(min(r_vals)), xpos(max(r_vals))
+            ax.plot([p1, p2], [curr_clq_y, curr_clq_y],
+                    color='black', lw=9, solid_capstyle='butt', zorder=5)
+            curr_clq_y += 0.09
+
+        for i, idx in enumerate(sorted_idx):
+            rank, name_i = sums[idx], nnames[idx]
+            m_col      = colors[i % len(colors)]
+            side_right = i < mid
+
+            px = xpos(rank)
+            lx = (width - textspace + 0.5) / width if side_right \
+                 else (textspace - 0.5) / width
+            ly = label_ys[i]
+
+            ax.plot([px, px, lx], [cline, ly, ly],
+                    color=m_col, lw=3.5, solid_capstyle='round', zorder=3)
+
+            ha = 'left' if side_right else 'right'
+            
+            ax.text(lx, ly - 0.010,
+                    name_i,
+                    color=m_col,
+                    ha=ha, va='bottom',
+                    fontsize=18, fontweight='bold')
+            
+            rank_label = f"MARS Score: {rank:.2f}" if title == "MARS" else f"Rank: {rank:.2f}"
+            ax.text(lx, ly + 0.015,
+                    rank_label,
+                    color=m_col,
+                    ha=ha, va='top',
+                    fontsize=11, fontweight='normal', alpha=0.85)
+
+        return fig
+
+
 def load_data():
     data_dict = {}
-    # Updated pattern to capture Stability as well
     pattern = re.compile(r'^(.+?)_(CLSACC|NMI|ACC|AUC|AAD|Stability_CLSACC|Stability_NMI|Stability_ACC|Stability_AUC|Stability_AAD)_(10Percent|100Percent)\.csv$')
     if not os.path.exists(DATA_DIR):
         return data_dict
@@ -86,9 +234,11 @@ def load_data():
             data_dict[f"{method}|{metric}|{suffix}"] = df.to_dict('records')
     return data_dict
 
+
 INITIAL_DATA = load_data()
 
 RUNTIME_DATA = {'features': {}, 'instances': {}}
+
 
 def load_runtime_data():
     global RUNTIME_DATA
@@ -99,6 +249,7 @@ def load_runtime_data():
             RUNTIME_DATA[rtype] = df.set_index('Method').to_dict('index')
         else:
             RUNTIME_DATA[rtype] = {}
+
 
 load_runtime_data()
 
@@ -133,7 +284,8 @@ app.layout = html.Div(style={'backgroundColor': '#f8f9fc', 'minHeight': '100vh',
     dcc.Store(id='custom-data-store', data={}),
     dcc.Store(id='state-for-download'),
     dcc.Download(id='download-line-plot'),
-    dcc.Download(id='download-cd-plot'),
+    dcc.Download(id='download-cd-standard'),
+    dcc.Download(id='download-cd-mars'),
     dcc.Download(id='download-runtime-plot'),
     dcc.Download(id='download-stability-plot'),
 
@@ -198,11 +350,25 @@ app.layout = html.Div(style={'backgroundColor': '#f8f9fc', 'minHeight': '100vh',
                     html.Button('Download Stability Plot (PDF)', id='btn-download-stability', style=GREEN_BTN)
                 ])
             ]),
+
+            # === NEW SIDE-BY-SIDE CD SECTION ===
             html.Div(style=CARD_STYLE, children=[
-                html.H3("Critical Difference Diagram (Nemenyi post-hoc)", style={'margin': '0 0 16px 0', 'fontSize': '1.32rem', 'borderLeft': '5px solid #8e44ad', 'paddingLeft': '12px', 'color': '#1e293b'}),
-                dcc.Graph(id='cd-diagram', style={'height': '560px', 'marginBottom': '12px'}),
-                html.Div(style={'textAlign': 'center'}, children=[
-                    html.Button('Download CD Diagram (PDF)', id='btn-download-cd', style=GREEN_BTN)
+                html.H3("Critical Difference Diagrams", style={'margin': '0 0 20px 0', 'fontSize': '1.32rem', 'borderLeft': '5px solid #8e44ad', 'paddingLeft': '12px', 'color': '#1e293b'}),
+                html.Div(style={'display': 'flex', 'gap': '20px'}, children=[
+                    html.Div(style={'flex': '1'}, children=[
+                        html.H4("Standard (Nemenyi)", style={'textAlign': 'center', 'color': '#2c3e50', 'marginBottom': '10px'}),
+                        dcc.Graph(id='cd-standard', style={'height': '620px'}),
+                        html.Div(style={'textAlign': 'center', 'marginTop': '12px'}, children=[
+                            html.Button('Download Standard CD (PDF)', id='btn-download-cd-standard', style=GREEN_BTN)
+                        ])
+                    ]),
+                    html.Div(style={'flex': '1'}, children=[
+                        html.H4("MARS (Weighted Ranks)", style={'textAlign': 'center', 'color': '#8e44ad', 'marginBottom': '10px'}),
+                        dcc.Graph(id='cd-mars', style={'height': '620px'}),
+                        html.Div(style={'textAlign': 'center', 'marginTop': '12px'}, children=[
+                            html.Button('Download MARS CD (PDF)', id='btn-download-cd-mars', style=PURPLE_BTN)
+                        ])
+                    ])
                 ])
             ]),
 
@@ -235,6 +401,7 @@ def get_filtered_data(metric, rng, exclusion, custom):
                  and k.split('|')[0] not in ex_methods]
     return full, perf_keys
 
+
 def get_effective_runtime_data(rtype, exclusion, custom):
     base = RUNTIME_DATA.get(rtype, {})
     custom_key = f'custom_runtime_{rtype}'
@@ -252,75 +419,102 @@ def get_effective_runtime_data(rtype, exclusion, custom):
     return df
 
 
-@app.callback(
-    [Output('exclude-container', 'style'), Output('exclusion-store', 'data')],
-    [Input('btn-exclude-toggle', 'n_clicks'), Input('btn-exclude-apply', 'n_clicks')],
-    State('exclude-input', 'value'),
-    prevent_initial_call=True
-)
-def toggle_exclude_panel(n_toggle, n_apply, text):
-    ctx = callback_context
-    if not ctx.triggered: raise PreventUpdate
-    trigger = ctx.triggered[0]['prop_id'].split('.')[0]
-    if trigger == 'btn-exclude-toggle':
-        return {'display': 'block'}, no_update
-    try:
-        ds = eval(re.search(r'DATASETS\s*=\s*(\[.*?\])', text, re.DOTALL).group(1))
-        me = eval(re.search(r'METHODS\s*=\s*(\[.*?\])', text, re.DOTALL).group(1))
-        return {'display': 'none'}, {'datasets': ds, 'methods': me}
-    except:
-        return {'display': 'none'}, no_update
+def compute_weighted_rank_matrix(data_matrix):
+    n_ds, n_clfs = data_matrix.shape
+    weighted_ranks = np.zeros_like(data_matrix, dtype=float)
 
-@app.callback(
-    Output('custom-data-store', 'data'),
-    Input('upload-data', 'contents'),
-    [State('upload-data', 'filename'), State('custom-data-store', 'data')],
-    prevent_initial_call=True
-)
-def store_uploaded_data(contents, filenames, current):
-    if not contents: raise PreventUpdate
-    data = current or {}
-    
-    for content, fname in zip(contents, filenames):
-        if not content: continue
-        _, b64 = content.split(',')
-        decoded = base64.b64decode(b64)
-        
-        match = re.match(r'^(.+?)_(CLSACC|NMI|ACC|AUC)_(10Percent|100Percent)\.csv$', fname)
-        if match:
-            method, metric, suffix = match.groups()
-            df = pd.read_csv(io.StringIO(decoded.decode('utf-8')))
-            df.columns = [str(c) for c in df.columns]
-            key = f"{method}|{metric}|{suffix}"
-            data[key] = df.to_dict('records')
+    for i in range(n_ds):
+        row = data_matrix[i, :]
+        mx, mn = np.max(row), np.min(row)
+
+        temp = (-row).argsort()
+        ranks = np.empty_like(temp, dtype=float)
+        ranks[temp] = np.arange(n_clfs) + 1.0
+
+        if mx == mn:
+            weighted_ranks[i, :] = ranks
             continue
-        
-        content_str = decoded.decode('utf-8')
-        if fname == "time_analysis_features.csv":
-            df = pd.read_csv(io.StringIO(content_str))
-            data['custom_runtime_features'] = df.set_index('Method').to_dict('index')
-        elif fname == "time_analysis_instances.csv":
-            df = pd.read_csv(io.StringIO(content_str))
-            data['custom_runtime_instances'] = df.set_index('Method').to_dict('index')
-    
-    return data
 
-@app.callback(
-    Output('state-for-download', 'data'),
-    Input('metric-dropdown', 'value'),
-    Input('range-dropdown', 'value'),
-    Input('dataset-dropdown', 'value'),
-    Input('exclusion-store', 'data'),
-    Input('custom-data-store', 'data')
-)
-def sync_state_for_download(metric, rng, ds, exclusion, custom):
-    return {
-        'metric': metric,
-        'range': rng,
-        'selected_dataset': ds,
-        'exclusion': exclusion,
-        'custom_keys': list(custom.keys()) if custom else []
-    }
+        not_min_mask = row > mn
+        weights = np.zeros(n_clfs, dtype=float)
+
+        weights[not_min_mask] = (mx - mn) / (row[not_min_mask] - mn)
+
+        w_vals = np.sort(weights[not_min_mask])
+        if len(w_vals) > 1:
+            delta = np.max(np.diff(w_vals))
+        elif len(w_vals) > 0:
+            delta = w_vals[0]
+        else:
+            delta = 1.0
+
+        weights[~not_min_mask] = (w_vals[-1] + delta) if len(w_vals) > 0 else 1.0
+
+        weighted_ranks[i, :] = ranks * weights
+
+    return weighted_ranks
+
+
+def compute_cd_mars(wr_mat, n_ds):
+    k = wr_mat.shape[1]
+    theo_std = math.sqrt((k**2 - 1) / 12)
+    obs_std = wr_mat.std()
+    cd_base = 2.8 * math.sqrt(k * (k + 1) / (6 * n_ds))
+    cd_mars = cd_base * (obs_std / theo_std)
+    return cd_mars
+
+
+def create_cd_figures(full_data, keys, metric, rng, excluded_ds):
+    """Return both Standard and MARS matplotlib figures"""
+    if not keys:
+        empty = plt.figure()
+        plt.close(empty)
+        return empty, empty
+
+    methods = sorted({k.split('|')[0] for k in keys})
+    p_cols = PERCENTAGE_RANGES[rng]['cols']
+
+    perf_matrix = []
+    ref_df = pd.DataFrame(full_data[keys[0]])
+    for ds in sorted(set(ref_df['Dataset']) - set(excluded_ds)):
+        row = []
+        valid = all(
+            f"{m}|{metric}|{rng}" in full_data and
+            not pd.DataFrame(full_data[f"{m}|{metric}|{rng}"])[pd.DataFrame(full_data[f"{m}|{metric}|{rng}"])['Dataset'] == ds].empty
+            for m in methods
+        )
+        if not valid: continue
+        for m in methods:
+            df = pd.DataFrame(full_data[f"{m}|{metric}|{rng}"])
+            sub = df[df['Dataset'] == ds]
+            row.append(sub[p_cols].apply(pd.to_numeric).mean(axis=1).mean())
+        perf_matrix.append(row)
+
+    if len(perf_matrix) < 3 or len(methods) < 2:
+        empty = plt.figure()
+        plt.close(empty)
+        return empty, empty
+
+    perf_matrix = np.array(perf_matrix)
+    n_ds, n_m = perf_matrix.shape
+    is_lower_better = (metric == 'AAD')
+
+    # === STANDARD ===
+    ranking_matrix = perf_matrix if is_lower_better else -perf_matrix
+    ranks = np.apply_along_axis(rankdata, 1, ranking_matrix)
+    std_ranks = ranks.mean(axis=0)
+    cd_std = 2.728 * np.sqrt(n_m * (n_m + 1) / (6.0 * n_ds))
+    fig_std = UnifiedPlotter.graph_ranks(std_ranks, methods, cd=cd_std, title="Standard", name=metric)
+
+    # === MARS ===
+    X = perf_matrix if not is_lower_better else -perf_matrix
+    wr_mat = compute_weighted_rank_matrix(X)
+    mars_scores = wr_mat.mean(axis=0)
+    cd_mars = compute_cd_mars(wr_mat, n_ds)
+    fig_mars = UnifiedPlotter.graph_ranks(mars_scores, methods, cd=cd_mars, title="MARS", name=metric)
+
+    return fig_std, fig_mars
+
 
 @app.callback(
     [Output('line-plot', 'figure'),
@@ -329,7 +523,8 @@ def sync_state_for_download(metric, rng, ds, exclusion, custom):
      Output('dataset-dropdown', 'options'),
      Output('dataset-dropdown', 'value'),
      Output('table-title', 'children'),
-     Output('cd-diagram', 'figure'),
+     Output('cd-standard', 'figure'),
+     Output('cd-mars', 'figure'),
      Output('runtime-plot', 'figure'),
      Output('stability-bar-plot', 'figure'),  
      Output('stability-title', 'children')],
@@ -346,7 +541,7 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
     empty = go.Figure(); empty.update_layout(title="No data available")
     
     if not keys:
-        return empty, [], [], [], None, "No data", empty, empty, empty, "No data"
+        return empty, [], [], [], None, "No data", empty, empty, empty, empty, "No data"
 
     p_cols = PERCENTAGE_RANGES[rng]['cols']
     x_labels = [f'{float(c)*100:g}%' for c in p_cols]
@@ -424,7 +619,7 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
             info = rankings.get(ds, {})
             val = info.get('lookup', {}).get(m)
             if val is None:
-                row[ds] = "â€”"
+                row[ds] = "—"
             else:
                 fmt = f"{val:.4f}"
                 if val == info.get('best'):
@@ -473,7 +668,28 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
         else:
             stab_fig.update_layout(title="No Stability data found for this selection")
 
-    cd_fig = create_cd_figure(full_data, keys, metric, rng, exclusion.get('datasets', []))
+    # Create both CD figures
+    fig_std_mat, fig_mars_mat = create_cd_figures(full_data, keys, metric, rng, exclusion.get('datasets', []))
+
+    # Convert to Plotly images for display
+    def mat_to_plotly(fig_mat):
+        if fig_mat is None or len(fig_mat.axes) == 0:
+            empty = go.Figure(); empty.update_layout(title="No data")
+            return empty
+        buf = io.BytesIO()
+        fig_mat.savefig(buf, format='png', bbox_inches='tight', dpi=180)
+        buf.seek(0)
+        img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+        plt.close(fig_mat)
+        plotly_fig = go.Figure(go.Image(source=f'data:image/png;base64,{img_base64}'))
+        plotly_fig.update_layout(
+            margin=dict(l=0, r=0, t=30, b=0),
+            height=620
+        )
+        return plotly_fig
+
+    cd_std_plotly = mat_to_plotly(fig_std_mat)
+    cd_mars_plotly = mat_to_plotly(fig_mars_mat)
 
     rt_fig = go.Figure()
     df_rt = get_effective_runtime_data(rtype, exclusion, custom or {})
@@ -483,7 +699,7 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
         try:
             x_vals = [int(c) for c in x_cols]
         except ValueError:
-            x_vals = list(range(len(x_cols)))  # fallback
+            x_vals = list(range(len(x_cols)))
 
         for _, row in df_rt.iterrows():
             y_vals = row[x_cols].astype(float).values
@@ -512,68 +728,10 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
     title = f"Metric: {metric}   |   {PERCENTAGE_RANGES[rng]['label']}"
 
     return line_fig, rows, columns, [{'label': d, 'value': d} for d in unique_datasets], \
-           active_ds, title, cd_fig, rt_fig, stab_fig, stab_title
+           active_ds, title, cd_std_plotly, cd_mars_plotly, rt_fig, stab_fig, stab_title
 
-def create_cd_figure(full_data, keys, metric, rng, excluded_ds):
-    if not keys:
-        fig = go.Figure(); fig.update_layout(title="No data"); return fig
 
-    methods = sorted({k.split('|')[0] for k in keys})
-    p_cols = PERCENTAGE_RANGES[rng]['cols']
-
-    perf_matrix = []
-    ref_df = pd.DataFrame(full_data[keys[0]])
-    for ds in sorted(set(ref_df['Dataset']) - set(excluded_ds)):
-        row = []
-        valid = all(
-            f"{m}|{metric}|{rng}" in full_data and
-            not pd.DataFrame(full_data[f"{m}|{metric}|{rng}"])[pd.DataFrame(full_data[f"{m}|{metric}|{rng}"])['Dataset'] == ds].empty
-            for m in methods
-        )
-        if not valid: continue
-        for m in methods:
-            df = pd.DataFrame(full_data[f"{m}|{metric}|{rng}"])
-            sub = df[df['Dataset'] == ds]
-            row.append(sub[p_cols].apply(pd.to_numeric).mean(axis=1).mean())
-        perf_matrix.append(row)
-
-    if len(perf_matrix) < 3 or len(methods) < 2:
-        fig = go.Figure(); fig.update_layout(title="Not enough data for CD"); return fig
-
-    perf_matrix = np.array(perf_matrix)
-    is_lower_better = (metric == 'AAD')
-    ranking_matrix = perf_matrix if is_lower_better else -perf_matrix
-    ranks = np.apply_along_axis(rankdata, 1, ranking_matrix)
-    avg_ranks = ranks.mean(axis=0)
-
-    n_ds, n_m = perf_matrix.shape
-    cd = 2.728 * np.sqrt(n_m * (n_m + 1) / (6.0 * n_ds))
-
-    fig = go.Figure()
-    colors = ['#e74c3c' if i == np.argmin(avg_ranks) else '#3498db' for i in range(n_m)]
-
-    fig.add_trace(go.Bar(y=methods, x=avg_ranks, orientation='h', marker_color=colors,
-                         text=[f"{r:.2f}" for r in avg_ranks], textposition='auto'))
-
-    best = min(avg_ranks)
-    fig.add_shape(type="line", x0=best, x1=best + cd, y0=-1.1, y1=-1.1,
-                  line=dict(color="#1f2937", width=6))
-    fig.add_annotation(x=best + cd/2, y=-2.0,
-                       text=f"CD = {cd:.2f}",
-                       showarrow=False, font=dict(size=14, color="#111827"),
-                       bgcolor="white", bordercolor="#9ca3af", borderwidth=1, borderpad=6,
-                       align='center')
-
-    fig.update_layout(
-        xaxis_title="Average rank (lower is better)",
-        yaxis_title="Method",
-        template='plotly_white',
-        height=max(520, 65 + 48 * n_m),
-        margin=dict(l=160, r=40, t=20, b=140),
-        font=dict(family="Segoe UI", size=13.5)
-    )
-    return fig
-
+# ==================== DOWNLOAD CALLBACKS ====================
 
 @app.callback(
     Output('download-line-plot', 'data'),
@@ -621,93 +779,90 @@ def download_line_plot(n, state, custom):
     plt.close(fig)
     return dcc.send_bytes(buf.getvalue(), filename=f"line_{ds}_{metric}_{rng}.pdf")
 
+
 @app.callback(
     Output('download-stability-plot', 'data'),
     Input('btn-download-stability', 'n_clicks'),
     [State('state-for-download', 'data'), State('custom-data-store', 'data')],
     prevent_initial_call=True
-    )
-
+)
 def download_stability_plot(n, state, custom):
-        if not n or not state: raise PreventUpdate
-        metric, rng = state['metric'], state['range']
-        ds = state.get('selected_dataset')
-        excl = state.get('exclusion', {'methods': [], 'datasets': []})
-        full, _ = get_filtered_data(metric, rng, excl, custom)
-        if not ds: raise PreventUpdate
+    if not n or not state: raise PreventUpdate
+    metric, rng = state['metric'], state['range']
+    ds = state.get('selected_dataset')
+    excl = state.get('exclusion', {'methods': [], 'datasets': []})
+    full, _ = get_filtered_data(metric, rng, excl, custom)
+    if not ds: raise PreventUpdate
 
-        methods = sorted({k.split('|')[0] for k in full if f"|{metric}|{rng}" in k and 'Stability' not in k})
-        stab_methods, stab_values, stab_colors = [], [], []
+    methods = sorted({k.split('|')[0] for k in full if f"|{metric}|{rng}" in k and 'Stability' not in k})
+    stab_methods, stab_values, stab_colors = [], [], []
 
-        for m in methods:
-            stab_key = f"{m}|Stability_{metric}|{rng}"
-            if stab_key in full:
-                df_s = pd.DataFrame(full[stab_key])
-                sub_s = df_s[df_s['Dataset'] == ds]
-                if not sub_s.empty:
-                    stab_methods.append(m)
-                    stab_values.append(sub_s['Stability'].iloc[0])
-                    stab_colors.append(STYLE_MAP.get(m, {'color': '#666'})['color'])
+    for m in methods:
+        stab_key = f"{m}|Stability_{metric}|{rng}"
+        if stab_key in full:
+            df_s = pd.DataFrame(full[stab_key])
+            sub_s = df_s[df_s['Dataset'] == ds]
+            if not sub_s.empty:
+                stab_methods.append(m)
+                stab_values.append(sub_s['Stability'].iloc[0])
+                stab_colors.append(STYLE_MAP.get(m, {'color': '#666'})['color'])
 
-        if not stab_methods: raise PreventUpdate
+    if not stab_methods: raise PreventUpdate
 
-        buf = io.BytesIO()
-        fig, ax = plt.subplots(figsize=(10, 5), dpi=150)
-        bars = ax.bar(stab_methods, stab_values, color=stab_colors)
-        ax.bar_label(bars, fmt='%.4f', padding=3, fontsize=9)
-        ax.set_xlabel("Method")
-        ax.set_ylabel("Stability Score")
-        ax.set_title(f"Stability: {metric} | {ds} | {PERCENTAGE_RANGES[rng]['label']}")
-        ax.grid(axis='y', linestyle='--', linewidth=0.7, alpha=0.6, color='gray')
-        plt.tight_layout()
-        plt.savefig(buf, format='pdf', bbox_inches='tight')
-        buf.seek(0)
-        plt.close(fig)
-        return dcc.send_bytes(buf.getvalue(), filename=f"stability_{ds}_{metric}_{rng}.pdf")
+    buf = io.BytesIO()
+    fig, ax = plt.subplots(figsize=(10, 5), dpi=150)
+    bars = ax.bar(stab_methods, stab_values, color=stab_colors)
+    ax.bar_label(bars, fmt='%.4f', padding=3, fontsize=9)
+    ax.set_xlabel("Method")
+    ax.set_ylabel("Stability Score")
+    ax.set_title(f"Stability: {metric} | {ds} | {PERCENTAGE_RANGES[rng]['label']}")
+    ax.grid(axis='y', linestyle='--', linewidth=0.7, alpha=0.6, color='gray')
+    plt.tight_layout()
+    plt.savefig(buf, format='pdf', bbox_inches='tight')
+    buf.seek(0)
+    plt.close(fig)
+    return dcc.send_bytes(buf.getvalue(), filename=f"stability_{ds}_{metric}_{rng}.pdf")
+
 
 @app.callback(
-    Output('download-cd-plot', 'data'),
-    Input('btn-download-cd', 'n_clicks'),
+    Output('download-cd-standard', 'data'),
+    Input('btn-download-cd-standard', 'n_clicks'),
     [State('state-for-download', 'data'), State('custom-data-store', 'data')],
     prevent_initial_call=True
 )
-def download_cd_plot(n, state, custom):
+def download_cd_standard(n, state, custom):
     if not n or not state: raise PreventUpdate
     metric, rng = state['metric'], state['range']
     excl = state.get('exclusion', {'methods':[], 'datasets':[]})
     full, keys = get_filtered_data(metric, rng, excl, custom)
     if not keys: raise PreventUpdate
-    methods = sorted({k.split('|')[0] for k in keys})
-    p_cols, excluded_ds = PERCENTAGE_RANGES[rng]['cols'], excl.get('datasets', [])
-    perf_matrix = []
-    ref_df = pd.DataFrame(full[keys[0]])
-    for ds in sorted(set(ref_df['Dataset']) - set(excluded_ds)):
-        row = []
-        valid = all(f"{m}|{metric}|{rng}" in full and not pd.DataFrame(full[f"{m}|{metric}|{rng}"])[pd.DataFrame(full[f"{m}|{metric}|{rng}"])['Dataset'] == ds].empty for m in methods)
-        if not valid: continue
-        for m in methods:
-            df = pd.DataFrame(full[f"{m}|{metric}|{rng}"])
-            row.append(df[df['Dataset'] == ds][p_cols].apply(pd.to_numeric).mean(axis=1).mean())
-        perf_matrix.append(row)
-    if len(perf_matrix) < 3: raise PreventUpdate
-    perf_matrix = np.array(perf_matrix)
-    is_lower_better = (metric == 'AAD')
-    ranking_matrix = perf_matrix if is_lower_better else -perf_matrix
-    ranks = np.apply_along_axis(rankdata, 1, ranking_matrix)
-    avg_ranks = ranks.mean(axis=0); n_ds, n_m = perf_matrix.shape        
-    cd = 2.728 * np.sqrt(n_m * (n_m + 1) / (6.0 * n_ds))
-    buf = io.BytesIO(); fig_height = max(7.0, 0.65 * n_m + 2.8)
-    fig, ax = plt.subplots(figsize=(12.5, fig_height), dpi=160)
-    y_pos = np.arange(len(methods))
-    colors = ['#c0392b' if i == np.argmin(avg_ranks) else '#2980b9' for i in range(n_m)]
-    ax.barh(y_pos, avg_ranks, color=colors, height=0.70, align='center')
-    ax.set_yticks(y_pos); ax.set_yticklabels(methods, fontsize=13); ax.invert_yaxis()
-    ax.set_xlabel('Average rank (lower is better)'); best = min(avg_ranks)
-    ax.plot([best, best + cd], [-0.55, -0.55], color='#1f2937', linewidth=7)
-    ax.text(best + cd + 0.75, -0.55, f'CD = {cd:.2f}', ha='center', va='center', fontweight='bold')
-    plt.subplots_adjust(left=0.32, bottom=0.18); plt.savefig(buf, format='pdf', bbox_inches='tight')
-    buf.seek(0); plt.close(fig)
-    return dcc.send_bytes(buf.getvalue(), filename=f"CD_{metric}_{rng}.pdf")
+    fig_std, _ = create_cd_figures(full, keys, metric, rng, excl.get('datasets', []))
+    buf = io.BytesIO()
+    fig_std.savefig(buf, format='pdf', bbox_inches='tight', dpi=300)
+    buf.seek(0)
+    plt.close(fig_std)
+    return dcc.send_bytes(buf.getvalue(), filename=f"CD_Standard_{metric}_{rng}.pdf")
+
+
+@app.callback(
+    Output('download-cd-mars', 'data'),
+    Input('btn-download-cd-mars', 'n_clicks'),
+    [State('state-for-download', 'data'), State('custom-data-store', 'data')],
+    prevent_initial_call=True
+)
+def download_cd_mars(n, state, custom):
+    if not n or not state: raise PreventUpdate
+    metric, rng = state['metric'], state['range']
+    excl = state.get('exclusion', {'methods':[], 'datasets':[]})
+    full, keys = get_filtered_data(metric, rng, excl, custom)
+    if not keys: raise PreventUpdate
+    _, fig_mars = create_cd_figures(full, keys, metric, rng, excl.get('datasets', []))
+    buf = io.BytesIO()
+    fig_mars.savefig(buf, format='pdf', bbox_inches='tight', dpi=300)
+    buf.seek(0)
+    plt.close(fig_mars)
+    return dcc.send_bytes(buf.getvalue(), filename=f"CD_MARS_{metric}_{rng}.pdf")
+
 
 @app.callback(
     Output('download-runtime-plot', 'data'),
@@ -769,6 +924,25 @@ def download_runtime_plot(n, rtype, exclusion, custom):
     plt.close(fig)
     return dcc.send_bytes(buf.getvalue(), filename=f"runtime_{rtype}.pdf")
 
+
+@app.callback(
+    Output('state-for-download', 'data'),
+    [Input('metric-dropdown', 'value'),
+     Input('range-dropdown', 'value'),
+     Input('dataset-dropdown', 'value'),
+     Input('exclusion-store', 'data'),
+     Input('custom-data-store', 'data')]
+)
+def sync_state_for_download(metric, rng, ds, exclusion, custom):
+    return {
+        'metric': metric,
+        'range': rng,
+        'selected_dataset': ds,
+        'exclusion': exclusion,
+        'custom_keys': list(custom.keys()) if custom else []
+    }
+
+
 @app.callback(
     [Output('latex-output', 'value'), Output('latex-output', 'style')],
     Input('btn-latex', 'n_clicks'),
@@ -783,6 +957,62 @@ def generate_latex(n, table_data):
         df[col] = df[col].astype(str).str.replace(r'<u>(.*?)</u>', r'\\underline{\1}', regex=True)
     latex = df.to_latex(index=False, escape=False, column_format='l' + 'c'*(len(df.columns)-1))
     return latex, {'display': 'block', 'width': '100%', 'height': '280px', 'marginTop': '16px', 'fontSize': '13px', 'fontFamily': 'monospace', 'padding': '10px'}
+
+
+@app.callback(
+    [Output('exclude-container', 'style'), Output('exclusion-store', 'data')],
+    [Input('btn-exclude-toggle', 'n_clicks'), Input('btn-exclude-apply', 'n_clicks')],
+    State('exclude-input', 'value'),
+    prevent_initial_call=True
+)
+def toggle_exclude_panel(n_toggle, n_apply, text):
+    ctx = callback_context
+    if not ctx.triggered: raise PreventUpdate
+    trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+    if trigger == 'btn-exclude-toggle':
+        return {'display': 'block'}, no_update
+    try:
+        ds = eval(re.search(r'DATASETS\s*=\s*(\[.*?\])', text, re.DOTALL).group(1))
+        me = eval(re.search(r'METHODS\s*=\s*(\[.*?\])', text, re.DOTALL).group(1))
+        return {'display': 'none'}, {'datasets': ds, 'methods': me}
+    except:
+        return {'display': 'none'}, no_update
+
+
+@app.callback(
+    Output('custom-data-store', 'data'),
+    Input('upload-data', 'contents'),
+    [State('upload-data', 'filename'), State('custom-data-store', 'data')],
+    prevent_initial_call=True
+)
+def store_uploaded_data(contents, filenames, current):
+    if not contents: raise PreventUpdate
+    data = current or {}
+    
+    for content, fname in zip(contents, filenames):
+        if not content: continue
+        _, b64 = content.split(',')
+        decoded = base64.b64decode(b64)
+        
+        match = re.match(r'^(.+?)_(CLSACC|NMI|ACC|AUC|AAD|Stability_CLSACC|Stability_NMI|Stability_ACC|Stability_AUC|Stability_AAD)_(10Percent|100Percent)\.csv$', fname)
+        if match:
+            method, metric, suffix = match.groups()
+            df = pd.read_csv(io.StringIO(decoded.decode('utf-8')))
+            df.columns = [str(c) for c in df.columns]
+            key = f"{method}|{metric}|{suffix}"
+            data[key] = df.to_dict('records')
+            continue
+        
+        content_str = decoded.decode('utf-8')
+        if fname == "time_analysis_features.csv":
+            df = pd.read_csv(io.StringIO(content_str))
+            data['custom_runtime_features'] = df.set_index('Method').to_dict('index')
+        elif fname == "time_analysis_instances.csv":
+            df = pd.read_csv(io.StringIO(content_str))
+            data['custom_runtime_instances'] = df.set_index('Method').to_dict('index')
+    
+    return data
+
 
 if __name__ == '__main__':
     app.run(debug=False, port=8000)
