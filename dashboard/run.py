@@ -363,7 +363,7 @@ app.layout = html.Div(style={'backgroundColor': '#f8f9fc', 'minHeight': '100vh',
                         ])
                     ]),
                     html.Div(style={'flex': '1'}, children=[
-                        html.H4("MARS", style={'textAlign': 'center', 'color': '#8e44ad', 'marginBottom': '10px'}),
+                        html.H4("MARS", style={'textAlign': 'center', 'color': '#2c3e50', 'marginBottom': '10px'}),
                         dcc.Graph(id='cd-mars', style={'height': '620px'}),
                         html.Div(style={'textAlign': 'center', 'marginTop': '12px'}, children=[
                             html.Button('Download MARS CD (PDF)', id='btn-download-cd-mars', style=GREEN_BTN)
