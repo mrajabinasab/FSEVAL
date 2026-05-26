@@ -356,7 +356,7 @@ app.layout = html.Div(style={'backgroundColor': '#f8f9fc', 'minHeight': '100vh',
                 html.H3("Critical Difference Diagrams", style={'margin': '0 0 20px 0', 'fontSize': '1.32rem', 'borderLeft': '5px solid #8e44ad', 'paddingLeft': '12px', 'color': '#1e293b'}),
                 html.Div(style={'display': 'flex', 'gap': '20px'}, children=[
                     html.Div(style={'flex': '1'}, children=[
-                        html.H4("Standard", style={'textAlign': 'center', 'color': '#2c3e50', 'marginBottom': '10px'}),
+                        html.H4("Standard (Wilcoxon-Holm)", style={'textAlign': 'center', 'color': '#2c3e50', 'marginBottom': '10px'}),
                         dcc.Graph(id='cd-standard', style={'height': '620px'}),
                         html.Div(style={'textAlign': 'center', 'marginTop': '12px'}, children=[
                             html.Button('Download Standard CD (PDF)', id='btn-download-cd-standard', style=GREEN_BTN)
