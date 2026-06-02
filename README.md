@@ -153,13 +153,16 @@ The dashboard offers a collection of useful analytic tools to provide comprehens
 If you use FSEVAL in your research, please cite the original paper:
 
 ```
-@misc{rajabinasab2026fseval,
-      title={FSEVAL: Feature Selection Evaluation Toolbox and Dashboard}, 
-      author={Muhammad Rajabinasab and Arthur Zimek},
-      year={2026},
-      eprint={2604.18227},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG},
-      url={https://arxiv.org/abs/2604.18227}, 
+@article{DBLP:journals/corr/abs-2604-18227,
+  author       = {Muhammad Rajabinasab and
+                  Arthur Zimek},
+  title        = {{FSEVAL:} Feature Selection Evaluation Toolbox and Dashboard},
+  journal      = {CoRR},
+  volume       = {abs/2604.18227},
+  year         = {2026},
+  url          = {https://doi.org/10.48550/arXiv.2604.18227},
+  doi          = {10.48550/ARXIV.2604.18227},
+  eprinttype   = {arXiv},
+  eprint       = {2604.18227}
 }
 ```
