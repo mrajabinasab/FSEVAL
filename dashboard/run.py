@@ -13,6 +13,8 @@ import itertools
 import networkx as nx
 import math
 import operator
+import uuid
+import time
 from scipy.stats import rankdata, studentized_range
 from dash.exceptions import PreventUpdate
 from flask import send_from_directory
@@ -291,6 +293,44 @@ INITIAL_DATA = load_data()
 
 RUNTIME_DATA = {'features': {}, 'instances': {}}
 CUSTOM_DATA_SERVER = {}
+SESSION_TTL_SECONDS = 24 * 60 * 60
+
+
+def new_session_state():
+    session_id = uuid.uuid4().hex
+    CUSTOM_DATA_SERVER[session_id] = {'data': {}, 'last_seen': time.time()}
+    return {'session_id': session_id, 'version': 0}
+
+
+def get_session_id(custom):
+    if isinstance(custom, dict):
+        session_id = custom.get('session_id')
+        if session_id:
+            if session_id not in CUSTOM_DATA_SERVER:
+                CUSTOM_DATA_SERVER[session_id] = {'data': {}, 'last_seen': time.time()}
+            else:
+                CUSTOM_DATA_SERVER[session_id]['last_seen'] = time.time()
+            cleanup_sessions(session_id)
+            return session_id
+    session_id = uuid.uuid4().hex
+    CUSTOM_DATA_SERVER[session_id] = {'data': {}, 'last_seen': time.time()}
+    cleanup_sessions(session_id)
+    return session_id
+
+
+def get_session_data(custom):
+    session_id = get_session_id(custom)
+    return CUSTOM_DATA_SERVER[session_id]['data']
+
+
+def cleanup_sessions(active_session_id=None):
+    now = time.time()
+    expired = [
+        sid for sid, payload in CUSTOM_DATA_SERVER.items()
+        if sid != active_session_id and now - payload.get('last_seen', now) > SESSION_TTL_SECONDS
+    ]
+    for sid in expired:
+        CUSTOM_DATA_SERVER.pop(sid, None)
 
 
 def load_runtime_data():
@@ -331,122 +371,126 @@ CARD_STYLE = {
     'padding': '20px'
 }
 
-app.layout = html.Div(style={'backgroundColor': '#f8f9fc', 'minHeight': '100vh', 'fontFamily': "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"}, children=[
-
-    dcc.Store(id='exclusion-store', data={'datasets': [], 'methods': []}),
-    dcc.Store(id='custom-data-store', data={'version': 0}),
-    dcc.Store(id='state-for-download'),
-    dcc.Download(id='download-line-plot'),
-    dcc.Download(id='download-cd-standard'),
-    dcc.Download(id='download-cd-mars'),
-    dcc.Download(id='download-runtime-plot'),
-    dcc.Download(id='download-stability-plot'),
-
-    html.Div(style=HEADER_STYLE, children=[
-        html.Div([
-            html.H1('Feature Selection Evaluation', style={'margin': '0', 'fontSize': '1.9rem', 'fontWeight': '700', 'color': '#1e293b'}),
-            html.Div(style={'marginTop': '8px', 'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap'}, children=[
-                html.A(html.Button('About', style=BLUE_BTN), href='/about.html'),
-                html.A(html.Button('Benchmarking', style=BLUE_BTN), href='/benchmarking.html'),
-                html.A(html.Button('Documentation', style=BLUE_BTN), href='/documentation.html'),
-                html.A(html.Button('Downloads', style=BLUE_BTN), href='/downloads.html'),
-                html.A(html.Button('Cite', style=BLUE_BTN), href='/citation.html'),
-                html.A(html.Button('References', style=BLUE_BTN), href='/references.html'),
-                dcc.Upload(id='upload-data', multiple=True, children=html.Button('Import', style=ORANGE_BTN)),
-                html.Button('Exclude', id='btn-exclude-toggle', style=ORANGE_BTN),
-            ])
-        ]),
-        html.Div(style={'display': 'flex', 'gap': '16px', 'alignItems': 'flex-end'}, children=[
-            html.Div([html.Label('Dataset', style={'fontSize': '13px', 'fontWeight': '600', 'color': '#475569'}), dcc.Dropdown(id='dataset-dropdown', style={'width': '190px'})]),
-            html.Div([html.Label('Metric',   style={'fontSize': '13px', 'fontWeight': '600', 'color': '#475569'}), dcc.Dropdown(id='metric-dropdown', options=[{'label': m, 'value': m} for m in BENCHMARK_METRICS], value='CLSACC', style={'width': '130px'})]),
-            html.Div([html.Label('Range',    style={'fontSize': '13px', 'fontWeight': '600', 'color': '#475569'}), dcc.Dropdown(id='range-dropdown', options=[{'label': v['label'], 'value': k} for k, v in PERCENTAGE_RANGES.items()], value='10Percent', style={'width': '170px'})]),
-        ])
-    ]),
-
-    html.Div(id='exclude-container', style={'display': 'none', 'padding': '16px 32px', 'backgroundColor': '#fefce8', 'borderBottom': '1px solid #fef08a'}, children=[
-        html.Div(style={'maxWidth': '640px', 'margin': '0 auto'}, children=[
-            dcc.Textarea(id='exclude-input', value='DATASETS = []\nMETHODS = []', style={'width': '100%', 'height': '90px', 'fontFamily': 'monospace', 'fontSize': '13px', 'padding': '8px'}),
-            html.Button('Apply Exclusion', id='btn-exclude-apply', style={**ORANGE_BTN, 'marginTop': '12px'})
-        ])
-    ]),
-
-    html.Div(style={'padding': '24px 32px', 'display': 'flex', 'flexDirection': 'column', 'gap': '24px'}, children=[
-
-        html.Div(style=CARD_STYLE, children=[
-            dcc.Graph(id='line-plot', style={'height': '68vh', 'marginBottom': '12px'}),
-            html.Div(style={'textAlign': 'center'}, children=[
-                html.Button('Download Line Plot (PDF)', id='btn-download-line', style=GREEN_BTN)
-            ])
-        ]),
-
-        html.Div(style={'display': 'flex', 'flexDirection': 'column', 'gap': '24px'}, children=[
-
-            html.Div(style=CARD_STYLE, children=[
-                html.H3(id='table-title', style={'margin': '0 0 16px 0', 'fontSize': '1.32rem', 'borderLeft': '5px solid #27ae60', 'paddingLeft': '12px', 'color': '#1e293b'}),
-                dash_table.DataTable(
-                    id='score-table',
-                    markdown_options={"html": True},
-                    style_table={'overflowX': 'auto'},
-                    style_cell={'textAlign': 'center', 'padding': '10px 8px', 'fontSize': '13.5px', 'minWidth': '80px'},
-                    style_header={'backgroundColor': '#f1f5f9', 'fontWeight': '600', 'borderBottom': '2px solid #cbd5e1', 'color': '#1e293b'},
-                    style_data_conditional=[{'if': {'column_id': 'Method'}, 'fontWeight': '500', 'textAlign': 'left'}]
-                ),
-                html.Div(style={'textAlign': 'center', 'marginTop': '20px'}, children=[
-                    html.Button('Generate LaTeX Table', id='btn-latex', style={**BLUE_BTN, 'backgroundColor': '#27ae60'}),
-                    dcc.Textarea(id='latex-output', style={'display': 'none', 'width': '100%', 'height': '260px', 'marginTop': '16px', 'fontSize': '13px', 'fontFamily': 'monospace', 'padding': '10px'})
+def serve_layout():
+    return html.Div(style={'backgroundColor': '#f8f9fc', 'minHeight': '100vh', 'fontFamily': "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"}, children=[
+    
+        dcc.Store(id='exclusion-store', data={'datasets': [], 'methods': []}),
+        dcc.Store(id='custom-data-store', data=new_session_state(), storage_type='memory'),
+        dcc.Store(id='state-for-download'),
+        dcc.Download(id='download-line-plot'),
+        dcc.Download(id='download-cd-standard'),
+        dcc.Download(id='download-cd-mars'),
+        dcc.Download(id='download-runtime-plot'),
+        dcc.Download(id='download-stability-plot'),
+    
+        html.Div(style=HEADER_STYLE, children=[
+            html.Div([
+                html.H1('Feature Selection Evaluation', style={'margin': '0', 'fontSize': '1.9rem', 'fontWeight': '700', 'color': '#1e293b'}),
+                html.Div(style={'marginTop': '8px', 'display': 'flex', 'gap': '12px', 'flexWrap': 'wrap'}, children=[
+                    html.A(html.Button('About', style=BLUE_BTN), href='/about.html'),
+                    html.A(html.Button('Benchmarking', style=BLUE_BTN), href='/benchmarking.html'),
+                    html.A(html.Button('Documentation', style=BLUE_BTN), href='/documentation.html'),
+                    html.A(html.Button('Downloads', style=BLUE_BTN), href='/downloads.html'),
+                    html.A(html.Button('Cite', style=BLUE_BTN), href='/citation.html'),
+                    html.A(html.Button('References', style=BLUE_BTN), href='/references.html'),
+                    dcc.Upload(id='upload-data', multiple=True, children=html.Button('Import', style=ORANGE_BTN)),
+                    html.Button('Exclude', id='btn-exclude-toggle', style=ORANGE_BTN),
                 ])
             ]),
+            html.Div(style={'display': 'flex', 'gap': '16px', 'alignItems': 'flex-end'}, children=[
+                html.Div([html.Label('Dataset', style={'fontSize': '13px', 'fontWeight': '600', 'color': '#475569'}), dcc.Dropdown(id='dataset-dropdown', style={'width': '190px'})]),
+                html.Div([html.Label('Metric',   style={'fontSize': '13px', 'fontWeight': '600', 'color': '#475569'}), dcc.Dropdown(id='metric-dropdown', options=[{'label': m, 'value': m} for m in BENCHMARK_METRICS], value='CLSACC', style={'width': '130px'})]),
+                html.Div([html.Label('Range',    style={'fontSize': '13px', 'fontWeight': '600', 'color': '#475569'}), dcc.Dropdown(id='range-dropdown', options=[{'label': v['label'], 'value': k} for k, v in PERCENTAGE_RANGES.items()], value='10Percent', style={'width': '170px'})]),
+            ])
+        ]),
+    
+        html.Div(id='exclude-container', style={'display': 'none', 'padding': '16px 32px', 'backgroundColor': '#fefce8', 'borderBottom': '1px solid #fef08a'}, children=[
+            html.Div(style={'maxWidth': '640px', 'margin': '0 auto'}, children=[
+                dcc.Textarea(id='exclude-input', value='DATASETS = []\nMETHODS = []', style={'width': '100%', 'height': '90px', 'fontFamily': 'monospace', 'fontSize': '13px', 'padding': '8px'}),
+                html.Button('Apply Exclusion', id='btn-exclude-apply', style={**ORANGE_BTN, 'marginTop': '12px'})
+            ])
+        ]),
+    
+        html.Div(style={'padding': '24px 32px', 'display': 'flex', 'flexDirection': 'column', 'gap': '24px'}, children=[
+    
             html.Div(style=CARD_STYLE, children=[
-                html.H3(id='stability-title', style={'margin': '0 0 16px 0', 'fontSize': '1.32rem', 'borderLeft': '5px solid #f39c12', 'paddingLeft': '12px', 'color': '#1e293b'}),
-                dcc.Graph(id='stability-bar-plot', style={'height': '450px'}),
-                html.Div(style={'textAlign': 'center', 'marginTop': '12px'}, children=[
-                    html.Button('Download Stability Plot (PDF)', id='btn-download-stability', style=GREEN_BTN)
+                dcc.Graph(id='line-plot', style={'height': '68vh', 'marginBottom': '12px'}),
+                html.Div(style={'textAlign': 'center'}, children=[
+                    html.Button('Download Line Plot (PDF)', id='btn-download-line', style=GREEN_BTN)
                 ])
             ]),
-
-            html.Div(style=CARD_STYLE, children=[
-                html.H3("Critical Difference Diagrams", style={'margin': '0 0 20px 0', 'fontSize': '1.32rem', 'borderLeft': '5px solid #8e44ad', 'paddingLeft': '12px', 'color': '#1e293b'}),
-                html.Div(style={'display': 'flex', 'gap': '20px'}, children=[
-                    html.Div(style={'flex': '1'}, children=[
-                        html.H4("Standard (Wilcoxon-Holm)", style={'textAlign': 'center', 'color': '#2c3e50', 'marginBottom': '10px'}),
-                        dcc.Graph(id='cd-standard', style={'height': '620px'}),
-                        html.Div(style={'textAlign': 'center', 'marginTop': '12px'}, children=[
-                            html.Button('Download Standard CD (PDF)', id='btn-download-cd-standard', style=GREEN_BTN)
-                        ])
-                    ]),
-                    html.Div(style={'flex': '1'}, children=[
-                        html.H4("MARS", style={'textAlign': 'center', 'color': '#2c3e50', 'marginBottom': '10px'}),
-                        dcc.Graph(id='cd-mars', style={'height': '620px'}),
-                        html.Div(style={'textAlign': 'center', 'marginTop': '12px'}, children=[
-                            html.Button('Download MARS CD (PDF)', id='btn-download-cd-mars', style=GREEN_BTN)
+    
+            html.Div(style={'display': 'flex', 'flexDirection': 'column', 'gap': '24px'}, children=[
+    
+                html.Div(style=CARD_STYLE, children=[
+                    html.H3(id='table-title', style={'margin': '0 0 16px 0', 'fontSize': '1.32rem', 'borderLeft': '5px solid #27ae60', 'paddingLeft': '12px', 'color': '#1e293b'}),
+                    dash_table.DataTable(
+                        id='score-table',
+                        markdown_options={"html": True},
+                        style_table={'overflowX': 'auto'},
+                        style_cell={'textAlign': 'center', 'padding': '10px 8px', 'fontSize': '13.5px', 'minWidth': '80px'},
+                        style_header={'backgroundColor': '#f1f5f9', 'fontWeight': '600', 'borderBottom': '2px solid #cbd5e1', 'color': '#1e293b'},
+                        style_data_conditional=[{'if': {'column_id': 'Method'}, 'fontWeight': '500', 'textAlign': 'left'}]
+                    ),
+                    html.Div(style={'textAlign': 'center', 'marginTop': '20px'}, children=[
+                        html.Button('Generate LaTeX Table', id='btn-latex', style={**BLUE_BTN, 'backgroundColor': '#27ae60'}),
+                        dcc.Textarea(id='latex-output', style={'display': 'none', 'width': '100%', 'height': '260px', 'marginTop': '16px', 'fontSize': '13px', 'fontFamily': 'monospace', 'padding': '10px'})
+                    ])
+                ]),
+                html.Div(style=CARD_STYLE, children=[
+                    html.H3(id='stability-title', style={'margin': '0 0 16px 0', 'fontSize': '1.32rem', 'borderLeft': '5px solid #f39c12', 'paddingLeft': '12px', 'color': '#1e293b'}),
+                    dcc.Graph(id='stability-bar-plot', style={'height': '450px'}),
+                    html.Div(style={'textAlign': 'center', 'marginTop': '12px'}, children=[
+                        html.Button('Download Stability Plot (PDF)', id='btn-download-stability', style=GREEN_BTN)
+                    ])
+                ]),
+    
+                html.Div(style=CARD_STYLE, children=[
+                    html.H3("Critical Difference Diagrams", style={'margin': '0 0 20px 0', 'fontSize': '1.32rem', 'borderLeft': '5px solid #8e44ad', 'paddingLeft': '12px', 'color': '#1e293b'}),
+                    html.Div(style={'display': 'flex', 'gap': '20px'}, children=[
+                        html.Div(style={'flex': '1'}, children=[
+                            html.H4("Standard (Wilcoxon-Holm)", style={'textAlign': 'center', 'color': '#2c3e50', 'marginBottom': '10px'}),
+                            dcc.Graph(id='cd-standard', style={'height': '620px'}),
+                            html.Div(style={'textAlign': 'center', 'marginTop': '12px'}, children=[
+                                html.Button('Download Standard CD (PDF)', id='btn-download-cd-standard', style=GREEN_BTN)
+                            ])
+                        ]),
+                        html.Div(style={'flex': '1'}, children=[
+                            html.H4("MARS", style={'textAlign': 'center', 'color': '#2c3e50', 'marginBottom': '10px'}),
+                            dcc.Graph(id='cd-mars', style={'height': '620px'}),
+                            html.Div(style={'textAlign': 'center', 'marginTop': '12px'}, children=[
+                                html.Button('Download MARS CD (PDF)', id='btn-download-cd-mars', style=GREEN_BTN)
+                            ])
                         ])
                     ])
-                ])
-            ]),
-
-            html.Div(style=CARD_STYLE, children=[
-                html.Div(style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'marginBottom': '16px'}, children=[
-                    html.H3("Runtime Scalability Analysis", style={'margin': '0', 'fontSize': '1.32rem', 'borderLeft': '5px solid #4a6bff', 'paddingLeft': '12px', 'color': '#1e293b'}),
-                    dcc.Dropdown(
-                        id='runtime-type-dropdown',
-                        options=[{'label': 'Instances Experiment', 'value': 'instances'}, {'label': 'Features Experiment', 'value': 'features'}],
-                        value='features',
-                        clearable=False,
-                        style={'width': '220px'}
-                    )
                 ]),
-                dcc.Graph(id='runtime-plot', style={'height': '560px', 'marginBottom': '12px'}),
-                html.Div(style={'textAlign': 'center'}, children=[
-                    html.Button('Download Runtime Plot (PDF)', id='btn-download-runtime', style=GREEN_BTN)
-                ])
-            ]),
+    
+                html.Div(style=CARD_STYLE, children=[
+                    html.Div(style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center', 'marginBottom': '16px'}, children=[
+                        html.H3("Runtime Scalability Analysis", style={'margin': '0', 'fontSize': '1.32rem', 'borderLeft': '5px solid #4a6bff', 'paddingLeft': '12px', 'color': '#1e293b'}),
+                        dcc.Dropdown(
+                            id='runtime-type-dropdown',
+                            options=[{'label': 'Instances Experiment', 'value': 'instances'}, {'label': 'Features Experiment', 'value': 'features'}],
+                            value='features',
+                            clearable=False,
+                            style={'width': '220px'}
+                        )
+                    ]),
+                    dcc.Graph(id='runtime-plot', style={'height': '560px', 'marginBottom': '12px'}),
+                    html.Div(style={'textAlign': 'center'}, children=[
+                        html.Button('Download Runtime Plot (PDF)', id='btn-download-runtime', style=GREEN_BTN)
+                    ])
+                ]),
+            ])
         ])
     ])
-])
 
+
+app.layout = serve_layout
 
 def get_filtered_data(metric, rng, exclusion, custom):
-    full = {**INITIAL_DATA, **CUSTOM_DATA_SERVER}
+    session_data = get_session_data(custom)
+    full = {**INITIAL_DATA, **session_data}
     ex_methods = set((exclusion or {}).get('methods', []))
 
     perf_keys = []
@@ -472,7 +516,7 @@ def get_filtered_data(metric, rng, exclusion, custom):
 def get_effective_runtime_data(rtype, exclusion, custom):
     base = RUNTIME_DATA.get(rtype, {})
     custom_key = f'custom_runtime_{rtype}'
-    custom_data = CUSTOM_DATA_SERVER.get(custom_key, {})
+    custom_data = get_session_data(custom).get(custom_key, {})
 
     merged = {**base, **custom_data}
 
@@ -1082,7 +1126,7 @@ def sync_state_for_download(metric, rng, ds, exclusion, custom):
         'range': rng,
         'selected_dataset': ds,
         'exclusion': exclusion,
-        'custom_keys': list(CUSTOM_DATA_SERVER.keys())
+        'custom_keys': list(get_session_data(custom).keys())
     }
 
 
@@ -1129,11 +1173,11 @@ def toggle_exclude_panel(n_toggle, n_apply, text):
     prevent_initial_call=True
 )
 def store_uploaded_data(contents, filenames, current):
-    global CUSTOM_DATA_SERVER
-
     if not contents:
         raise PreventUpdate
 
+    session_id = get_session_id(current)
+    session_data = CUSTOM_DATA_SERVER[session_id]['data']
     pattern = re.compile(r'^(.+?)_(CLSACC|NMI|ACC|AUC|AAD|Stability_CLSACC|Stability_NMI|Stability_ACC|Stability_AUC|Stability_AAD)_(10Percent|100Percent)\.csv$')
 
     for content, fname in zip(contents, filenames):
@@ -1150,7 +1194,7 @@ def store_uploaded_data(contents, filenames, current):
             df = pd.read_csv(io.StringIO(text))
             df.columns = [str(c).strip() for c in df.columns]
             key = f"{method}|{metric_name}|{suffix}"
-            CUSTOM_DATA_SERVER[key] = df.to_dict('records')
+            session_data[key] = df.to_dict('records')
             continue
 
         if fname in ["time_analysis_features.csv", "time_analysis_instances.csv"]:
@@ -1162,16 +1206,16 @@ def store_uploaded_data(contents, filenames, current):
 
             rtype = "features" if fname == "time_analysis_features.csv" else "instances"
             custom_key = f"custom_runtime_{rtype}"
-            existing = dict(CUSTOM_DATA_SERVER.get(custom_key, {}))
+            existing = dict(session_data.get(custom_key, {}))
             uploaded = df.set_index("Method").to_dict("index")
             existing.update(uploaded)
-            CUSTOM_DATA_SERVER[custom_key] = existing
+            session_data[custom_key] = existing
 
     version = 0
     if isinstance(current, dict):
         version = current.get('version', 0)
 
-    return {'version': version + 1}
+    return {'session_id': session_id, 'version': version + 1}
 
 
 if __name__ == '__main__':
