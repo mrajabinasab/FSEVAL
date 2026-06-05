@@ -1004,12 +1004,22 @@ def store_uploaded_data(contents, filenames, current):
             continue
         
         content_str = decoded.decode('utf-8')
-        if fname == "time_analysis_features.csv":
+        if fname in ["time_analysis_features.csv", "time_analysis_instances.csv"]:
             df = pd.read_csv(io.StringIO(content_str))
-            data['custom_runtime_features'] = df.set_index('Method').to_dict('index')
-        elif fname == "time_analysis_instances.csv":
-            df = pd.read_csv(io.StringIO(content_str))
-            data['custom_runtime_instances'] = df.set_index('Method').to_dict('index')
+            df.columns = [str(c) for c in df.columns]
+        
+            if "Method" not in df.columns:
+                raise ValueError(f"{fname} must contain a Method column")
+        
+            rtype = "features" if fname == "time_analysis_features.csv" else "instances"
+            custom_key = f"custom_runtime_{rtype}"
+
+            existing = data.get(custom_key, {})
+            uploaded = df.set_index("Method").to_dict("index")
+            existing.update(uploaded)
+        
+            data[custom_key] = existing
+            continue
     
     return data
 
