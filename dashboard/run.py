@@ -20,7 +20,6 @@ from flask import send_from_directory
 app = Dash(__name__, title="Feature Selection Evaluation")
 server = app.server
 
-# Static file serving routes
 @server.route('/about.html')
 def serve_about():
     return send_from_directory('.', 'about.html')
@@ -83,8 +82,61 @@ PERCENTAGE_RANGES = {
     '100Percent': {'label': '5% to 100%',   'cols': [str(np.round(p, 2)) for p in np.arange(0.05, 1.001, 0.05)]}
 }
 
-MARKERS_LIST = ['o', 's', 'D', '^', 'v', 'p', '*', 'X', 'P', 'H']
-DEFAULT_COLORS = plt.rcParams['axes.prop_cycle'].by_key()['color']
+DISTINCT_COLORS = [
+    '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+    '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
+    '#393b79', '#637939', '#8c6d31', '#843c39', '#7b4173',
+    '#3182bd', '#31a354', '#756bb1', '#636363', '#e6550d',
+    '#6baed6', '#74c476', '#9e9ac8', '#969696', '#fd8d3c',
+    '#9ecae1', '#a1d99b', '#bcbddc', '#bdbdbd', '#fdae6b'
+]
+PLOTLY_MARKER_SYMBOLS = [
+    'circle', 'square', 'diamond', 'triangle-up', 'triangle-down',
+    'pentagon', 'hexagon', 'star', 'cross', 'x',
+    'triangle-left', 'triangle-right', 'hourglass', 'bowtie', 'asterisk'
+]
+MATPLOTLIB_MARKERS = ['o', 's', 'D', '^', 'v', 'p', 'h', '*', 'P', 'X', '<', '>', 'H', 'd', '8']
+PLOTLY_BAR_PATTERNS = ['', '/', '\\', 'x', '-', '|', '+', '.']
+MATPLOTLIB_HATCHES = ['', '/', '\\', 'x', '-', '|', '+', '.', 'o', '*']
+DEFAULT_COLORS = DISTINCT_COLORS
+
+
+def ordered_methods(methods):
+    method_set = set(methods)
+    ordered = [m for m in BENCHMARK_METHODS if m in method_set]
+    ordered.extend(sorted(method_set - set(ordered)))
+    return ordered
+
+
+def get_method_style(method, methods=None):
+    if methods is None:
+        methods = ordered_methods([method])
+    methods = ordered_methods(methods)
+    idx = methods.index(method) if method in methods else len(methods)
+    color = DISTINCT_COLORS[idx % len(DISTINCT_COLORS)]
+    marker_group = idx // len(DISTINCT_COLORS)
+    marker_idx = marker_group % len(PLOTLY_MARKER_SYMBOLS)
+    return {
+        'color': color,
+        'marker': PLOTLY_MARKER_SYMBOLS[marker_idx],
+        'plt': MATPLOTLIB_MARKERS[marker_idx]
+    }
+
+
+def get_bar_pattern(index, total, plotly=True):
+    if total <= len(DISTINCT_COLORS):
+        return ''
+    group = index // len(DISTINCT_COLORS)
+    patterns = PLOTLY_BAR_PATTERNS if plotly else MATPLOTLIB_HATCHES
+    return patterns[group % len(patterns)]
+
+
+def hex_to_rgba(hex_color, alpha):
+    hex_color = hex_color.lstrip('#')
+    r = int(hex_color[0:2], 16)
+    g = int(hex_color[2:4], 16)
+    b = int(hex_color[4:6], 16)
+    return f'rgba({r},{g},{b},{alpha})'
 
 
 class UnifiedPlotter:
@@ -238,6 +290,7 @@ def load_data():
 INITIAL_DATA = load_data()
 
 RUNTIME_DATA = {'features': {}, 'instances': {}}
+CUSTOM_DATA_SERVER = {}
 
 
 def load_runtime_data():
@@ -281,7 +334,7 @@ CARD_STYLE = {
 app.layout = html.Div(style={'backgroundColor': '#f8f9fc', 'minHeight': '100vh', 'fontFamily': "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"}, children=[
 
     dcc.Store(id='exclusion-store', data={'datasets': [], 'methods': []}),
-    dcc.Store(id='custom-data-store', data={}),
+    dcc.Store(id='custom-data-store', data={'version': 0}),
     dcc.Store(id='state-for-download'),
     dcc.Download(id='download-line-plot'),
     dcc.Download(id='download-cd-standard'),
@@ -351,7 +404,6 @@ app.layout = html.Div(style={'backgroundColor': '#f8f9fc', 'minHeight': '100vh',
                 ])
             ]),
 
-            # === NEW SIDE-BY-SIDE CD SECTION ===
             html.Div(style=CARD_STYLE, children=[
                 html.H3("Critical Difference Diagrams", style={'margin': '0 0 20px 0', 'fontSize': '1.32rem', 'borderLeft': '5px solid #8e44ad', 'paddingLeft': '12px', 'color': '#1e293b'}),
                 html.Div(style={'display': 'flex', 'gap': '20px'}, children=[
@@ -394,27 +446,42 @@ app.layout = html.Div(style={'backgroundColor': '#f8f9fc', 'minHeight': '100vh',
 
 
 def get_filtered_data(metric, rng, exclusion, custom):
-    full = {**INITIAL_DATA, **(custom or {})}
-    ex_methods = exclusion.get('methods', [])
-    perf_keys = [k for k in full if f"|{metric}|{rng}" in k
-                 and 'Stability' not in k
-                 and k.split('|')[0] not in ex_methods]
-    return full, perf_keys
+    full = {**INITIAL_DATA, **CUSTOM_DATA_SERVER}
+    ex_methods = set((exclusion or {}).get('methods', []))
 
+    perf_keys = []
+    stability_keys = []
+
+    for k in full:
+        parts = k.split('|')
+        if len(parts) != 3:
+            continue
+
+        method, key_metric, key_rng = parts
+
+        if method in ex_methods or key_rng != rng:
+            continue
+
+        if key_metric == metric:
+            perf_keys.append(k)
+        elif key_metric == f"Stability_{metric}":
+            stability_keys.append(k)
+
+    return full, perf_keys, stability_keys
 
 def get_effective_runtime_data(rtype, exclusion, custom):
     base = RUNTIME_DATA.get(rtype, {})
     custom_key = f'custom_runtime_{rtype}'
-    custom_data = (custom or {}).get(custom_key, {})
-    
+    custom_data = CUSTOM_DATA_SERVER.get(custom_key, {})
+
     merged = {**base, **custom_data}
-    
-    excluded_methods = set(exclusion.get('methods', []))
+
+    excluded_methods = set((exclusion or {}).get('methods', []))
     filtered = {m: v for m, v in merged.items() if m not in excluded_methods}
-    
+
     if not filtered:
         return pd.DataFrame()
-    
+
     df = pd.DataFrame.from_dict(filtered, orient='index').reset_index(names='Method')
     return df
 
@@ -465,7 +532,6 @@ def compute_cd_mars(wr_mat, n_ds):
 
 
 def create_cd_figures(full_data, keys, metric, rng, excluded_ds):
-    """Return both Standard and MARS matplotlib figures"""
     if not keys:
         empty = plt.figure()
         plt.close(empty)
@@ -499,14 +565,12 @@ def create_cd_figures(full_data, keys, metric, rng, excluded_ds):
     n_ds, n_m = perf_matrix.shape
     is_lower_better = (metric == 'AAD')
 
-    # === STANDARD ===
     ranking_matrix = perf_matrix if is_lower_better else -perf_matrix
     ranks = np.apply_along_axis(rankdata, 1, ranking_matrix)
     std_ranks = ranks.mean(axis=0)
     cd_std = 2.728 * np.sqrt(n_m * (n_m + 1) / (6.0 * n_ds))
     fig_std = UnifiedPlotter.graph_ranks(std_ranks, methods, cd=cd_std, title="Standard", name=metric)
 
-    # === MARS ===
     X = perf_matrix if not is_lower_better else -perf_matrix
     wr_mat = compute_weighted_rank_matrix(X)
     mars_scores = wr_mat.mean(axis=0)
@@ -525,9 +589,7 @@ def create_cd_figures(full_data, keys, metric, rng, excluded_ds):
      Output('table-title', 'children'),
      Output('cd-standard', 'figure'),
      Output('cd-mars', 'figure'),
-     Output('runtime-plot', 'figure'),
-     Output('stability-bar-plot', 'figure'),  
-     Output('stability-title', 'children')],
+     Output('runtime-plot', 'figure')],
     [Input('dataset-dropdown', 'value'),
      Input('metric-dropdown', 'value'),
      Input('range-dropdown', 'value'),
@@ -536,39 +598,50 @@ def create_cd_figures(full_data, keys, metric, rng, excluded_ds):
      Input('runtime-type-dropdown', 'value')]
 )
 def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
-    full_data, keys = get_filtered_data(metric, rng, exclusion, custom or {})
+    full_data, perf_keys, stability_keys = get_filtered_data(metric, rng, exclusion, custom or {})
     
-    empty = go.Figure(); empty.update_layout(title="No data available")
+    empty = go.Figure()
+    empty.update_layout(title="No data available")
     
-    if not keys:
-        return empty, [], [], [], None, "No data", empty, empty, empty, empty, "No data"
+    if not perf_keys and not stability_keys:
+        return empty, [], [], [], None, "No data", empty, empty, empty
 
     p_cols = PERCENTAGE_RANGES[rng]['cols']
     x_labels = [f'{float(c)*100:g}%' for c in p_cols]
 
     all_ds = set()
-    for k in keys:
-        all_ds.update(pd.DataFrame(full_data[k])['Dataset'].unique())
-    unique_datasets = sorted(list(all_ds - set(exclusion.get('datasets', []))))
+    for k in perf_keys:
+        df = pd.DataFrame(full_data[k])
+        if 'Dataset' in df.columns:
+            all_ds.update(df['Dataset'].dropna().astype(str).str.strip().unique())
+    for k in stability_keys:
+        df = pd.DataFrame(full_data[k])
+        if 'Dataset' in df.columns:
+            all_ds.update(df['Dataset'].dropna().astype(str).str.strip().unique())
 
+    unique_datasets = sorted(list(all_ds - set(exclusion.get('datasets', []))))
     active_ds = selected_ds if selected_ds in unique_datasets else (unique_datasets[0] if unique_datasets else None)
-    is_lower_better = (metric == 'AAD')
+    is_lower_better = metric == 'AAD'
+    methods = ordered_methods({k.split('|')[0] for k in perf_keys})
+
     line_fig = go.Figure()
-    if active_ds:
-        for key in keys:
+    if active_ds and perf_keys:
+        for key in perf_keys:
             method = key.split('|')[0]
             df = pd.DataFrame(full_data[key])
-            sub = df[df['Dataset'] == active_ds]
-            if sub.empty: continue
+            df['Dataset'] = df['Dataset'].astype(str).str.strip()
+            sub = df[df['Dataset'] == str(active_ds).strip()]
+            if sub.empty:
+                continue
             y = sub[p_cols].apply(pd.to_numeric, errors='coerce').mean().values
-            style = STYLE_MAP.get(method, {'color': '#666', 'marker': 'circle'})
+            style = get_method_style(method, methods)
 
             if method == 'Random':
                 std = sub[p_cols].apply(pd.to_numeric, errors='coerce').std().values
                 line_fig.add_trace(go.Scatter(
                     x=x_labels + x_labels[::-1],
                     y=np.concatenate([y + std, y - std][::-1]),
-                    fill='toself', fillcolor='rgba(67,97,238,0.18)', line=dict(color='rgba(0,0,0,0)'), showlegend=False
+                    fill='toself', fillcolor=hex_to_rgba(style['color'], 0.18), line=dict(color='rgba(0,0,0,0)'), showlegend=False
                 ))
 
             line_fig.add_trace(go.Scatter(
@@ -594,87 +667,55 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
     )
 
     rows = []
-    rankings = {}
-    for ds in unique_datasets:
-        scores = []
-        for k in keys:
-            df = pd.DataFrame(full_data[k])
-            sub = df[df['Dataset'] == ds]
-            if not sub.empty:
-                val = sub[p_cols].apply(pd.to_numeric).mean(axis=1).mean()
-                if not np.isnan(val):
-                    scores.append((k.split('|')[0], val))
-        if scores:
-            sorted_vals = sorted([v for _, v in scores], reverse=not is_lower_better)
-            rankings[ds] = {
-                'best': sorted_vals[0] if sorted_vals else None,
-                'second': sorted_vals[1] if len(sorted_vals) > 1 else None,
-                'lookup': dict(scores)
-            }
+    columns = []
 
-    methods = sorted({k.split('|')[0] for k in keys})
-    for m in methods:
-        row = {'Method': m}
+    if perf_keys:
+        rankings = {}
         for ds in unique_datasets:
-            info = rankings.get(ds, {})
-            val = info.get('lookup', {}).get(m)
-            if val is None:
-                row[ds] = "—"
-            else:
-                fmt = f"{val:.4f}"
-                if val == info.get('best'):
-                    row[ds] = f"**{fmt}**"
-                elif val == info.get('second'):
-                    row[ds] = f"<u>{fmt}</u>"
-                else:
-                    row[ds] = fmt
-        rows.append(row)
-
-    columns = [{"name": c, "id": c, "presentation": "markdown"} for c in ['Method'] + unique_datasets]
-
-    stab_fig = go.Figure()
-    stab_title = f"Stability Analysis: {metric}"
-    
-    if active_ds:
-        stab_methods = []
-        stab_values = []
-        stab_colors = []
+            scores = []
+            for k in perf_keys:
+                df = pd.DataFrame(full_data[k])
+                sub = df[df['Dataset'] == ds]
+                if not sub.empty:
+                    val = sub[p_cols].apply(pd.to_numeric, errors='coerce').mean(axis=1).mean()
+                    if not np.isnan(val):
+                        scores.append((k.split('|')[0], val))
+            if scores:
+                sorted_vals = sorted([v for _, v in scores], reverse=not is_lower_better)
+                rankings[ds] = {
+                    'best': sorted_vals[0] if sorted_vals else None,
+                    'second': sorted_vals[1] if len(sorted_vals) > 1 else None,
+                    'lookup': dict(scores)
+                }
 
         for m in methods:
-            stab_key = f"{m}|Stability_{metric}|{rng}"
-            if stab_key in full_data:
-                df_s = pd.DataFrame(full_data[stab_key])
-                sub_s = df_s[df_s['Dataset'] == active_ds]
-                if not sub_s.empty:
-                    val = sub_s['Stability'].iloc[0]
-                    stab_methods.append(m)
-                    stab_values.append(val)
-                    stab_colors.append(STYLE_MAP.get(m, {'color': '#666'})['color'])
-        
-        if stab_methods:
-            stab_fig.add_trace(go.Bar(
-                x=stab_methods,
-                y=stab_values,
-                marker_color=stab_colors,
-                text=[f"{v:.4f}" for v in stab_values],
-                textposition='auto'
-            ))
-            stab_fig.update_layout(
-                template='plotly_white',
-                xaxis_title="Method",
-                yaxis_title="Stability Score",
-                margin=dict(l=50, r=30, t=20, b=50)
-            )
-        else:
-            stab_fig.update_layout(title="No Stability data found for this selection")
+            row = {'Method': m}
+            for ds in unique_datasets:
+                info = rankings.get(ds, {})
+                val = info.get('lookup', {}).get(m)
+                if val is None:
+                    row[ds] = "—"
+                else:
+                    fmt = f"{val:.4f}"
+                    if val == info.get('best'):
+                        row[ds] = f"**{fmt}**"
+                    elif val == info.get('second'):
+                        row[ds] = f"<u>{fmt}</u>"
+                    else:
+                        row[ds] = fmt
+            rows.append(row)
 
-    # Create both CD figures
-    fig_std_mat, fig_mars_mat = create_cd_figures(full_data, keys, metric, rng, exclusion.get('datasets', []))
+        columns = [{"name": c, "id": c, "presentation": "markdown"} for c in ['Method'] + unique_datasets]
 
-    # Convert to Plotly images for display
+    if perf_keys:
+        fig_std_mat, fig_mars_mat = create_cd_figures(full_data, perf_keys, metric, rng, exclusion.get('datasets', []))
+    else:
+        fig_std_mat, fig_mars_mat = None, None
+
     def mat_to_plotly(fig_mat):
         if fig_mat is None or len(fig_mat.axes) == 0:
-            empty = go.Figure(); empty.update_layout(title="No data")
+            empty = go.Figure()
+            empty.update_layout(title="No data")
             return empty
         buf = io.BytesIO()
         fig_mat.savefig(buf, format='png', bbox_inches='tight', dpi=180)
@@ -701,15 +742,21 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
         except ValueError:
             x_vals = list(range(len(x_cols)))
 
+        rt_methods = ordered_methods(df_rt['Method'].dropna().astype(str).tolist())
+
         for _, row in df_rt.iterrows():
+            method = str(row['Method'])
+            style = get_method_style(method, rt_methods)
             y_vals = row[x_cols].astype(float).values
             valid = ~pd.isna(y_vals) & (y_vals != -1)
             if valid.sum() > 0:
                 rt_fig.add_trace(go.Scatter(
                     x=np.array(x_vals)[valid],
                     y=y_vals[valid],
-                    name=row['Method'],
-                    mode='lines+markers'
+                    name=method,
+                    mode='lines+markers',
+                    line=dict(color=style['color'], width=2.4),
+                    marker=dict(symbol=style['marker'], size=8)
                 ))
 
     rt_fig.update_layout(
@@ -728,10 +775,83 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
     title = f"Metric: {metric}   |   {PERCENTAGE_RANGES[rng]['label']}"
 
     return line_fig, rows, columns, [{'label': d, 'value': d} for d in unique_datasets], \
-           active_ds, title, cd_std_plotly, cd_mars_plotly, rt_fig, stab_fig, stab_title
+           active_ds, title, cd_std_plotly, cd_mars_plotly, rt_fig
 
 
-# ==================== DOWNLOAD CALLBACKS ====================
+@app.callback(
+    [Output('stability-bar-plot', 'figure'),
+     Output('stability-title', 'children')],
+    [Input('dataset-dropdown', 'value'),
+     Input('metric-dropdown', 'value'),
+     Input('range-dropdown', 'value'),
+     Input('exclusion-store', 'data'),
+     Input('custom-data-store', 'data')]
+)
+def update_stability_view(active_ds, metric, rng, exclusion, custom):
+    full_data, perf_keys, stability_keys = get_filtered_data(metric, rng, exclusion, custom or {})
+
+    stab_fig = go.Figure()
+    stab_title = f"Stability Analysis: {metric}"
+
+    if not active_ds:
+        stab_fig.update_layout(title="No dataset selected")
+        return stab_fig, stab_title
+
+    stability_methods = ordered_methods({k.split('|')[0] for k in stability_keys})
+    stab_methods = []
+    stab_values = []
+    stab_colors = []
+    stab_patterns = []
+    active_ds_clean = str(active_ds).strip()
+
+    for m in stability_methods:
+        stab_key = f"{m}|Stability_{metric}|{rng}"
+
+        if stab_key not in full_data:
+            continue
+
+        df_s = pd.DataFrame(full_data[stab_key])
+
+        if 'Dataset' not in df_s.columns or 'Stability' not in df_s.columns:
+            continue
+
+        df_s['Dataset'] = df_s['Dataset'].astype(str).str.strip()
+        sub_s = df_s[df_s['Dataset'] == active_ds_clean]
+
+        if sub_s.empty:
+            continue
+
+        val = pd.to_numeric(sub_s['Stability'].iloc[0], errors='coerce')
+
+        if pd.isna(val):
+            continue
+
+        idx = stability_methods.index(m) if m in stability_methods else len(stab_methods)
+        stab_methods.append(m)
+        stab_values.append(val)
+        stab_colors.append(get_method_style(m, stability_methods)['color'])
+        stab_patterns.append(get_bar_pattern(idx, len(stability_methods), plotly=True))
+
+    if stab_methods:
+        stab_fig.add_trace(go.Bar(
+            x=stab_methods,
+            y=stab_values,
+            marker=dict(color=stab_colors, pattern=dict(shape=stab_patterns)),
+            text=[f"{v:.4f}" for v in stab_values],
+            textposition='auto'
+        ))
+
+        stab_fig.update_layout(
+            template='plotly_white',
+            xaxis_title="Method",
+            yaxis_title="Stability Score",
+            margin=dict(l=50, r=30, t=20, b=50)
+        )
+    else:
+        stab_fig.update_layout(title="No Stability data found for this selection")
+
+    return stab_fig, stab_title
+
 
 @app.callback(
     Output('download-line-plot', 'data'),
@@ -740,32 +860,37 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
     prevent_initial_call=True
 )
 def download_line_plot(n, state, custom):
-    if not n or not state: raise PreventUpdate
+    if not n or not state:
+        raise PreventUpdate
     metric, rng, ds = state['metric'], state['range'], state.get('selected_dataset')
-    excl = state.get('exclusion', {'methods':[], 'datasets':[]})
-    full, keys = get_filtered_data(metric, rng, excl, custom)
-    if not ds or not keys: raise PreventUpdate
+    excl = state.get('exclusion', {'methods': [], 'datasets': []})
+    full, perf_keys, stability_keys = get_filtered_data(metric, rng, excl, custom)
+    if not ds or not perf_keys:
+        raise PreventUpdate
     p_cols = PERCENTAGE_RANGES[rng]['cols']
-    x_vals = [float(c)*100 for c in p_cols]
+    x_vals = [float(c) * 100 for c in p_cols]
     buf = io.BytesIO()
     fig, ax = plt.subplots(figsize=(14, 7), dpi=150)
+    methods = ordered_methods({k.split('|')[0] for k in perf_keys})
     
-    for k in keys:
+    for k in perf_keys:
         m = k.split('|')[0]
         df = pd.DataFrame(full[k])
-        sub = df[df['Dataset'] == ds]
-        if sub.empty: continue
-        y = sub[p_cols].apply(pd.to_numeric).mean().values
-        s = STYLE_MAP.get(m, {'color': '#555', 'plt': 'o'})
+        df['Dataset'] = df['Dataset'].astype(str).str.strip()
+        sub = df[df['Dataset'] == str(ds).strip()]
+        if sub.empty:
+            continue
+        y = sub[p_cols].apply(pd.to_numeric, errors='coerce').mean().values
+        style = get_method_style(m, methods)
 
         if m == 'Random':
-            std = sub[p_cols].apply(pd.to_numeric).std().values
+            std = sub[p_cols].apply(pd.to_numeric, errors='coerce').std().values
             ax.fill_between(
                 x_vals, y - std, y + std,
-                color='#4361ee', alpha=0.2, edgecolor='none', linewidth=0
+                color=style['color'], alpha=0.2, edgecolor='none', linewidth=0
             )
         
-        ax.plot(x_vals, y, label=m, marker=s['plt'], color=s['color'], lw=2.4)
+        ax.plot(x_vals, y, label=m, marker=style['plt'], color=style['color'], lw=2.4)
     
     ax.grid(axis='y', linestyle='--', linewidth=0.7, alpha=0.6, color='gray')
     if metric != 'AAD':
@@ -787,31 +912,44 @@ def download_line_plot(n, state, custom):
     prevent_initial_call=True
 )
 def download_stability_plot(n, state, custom):
-    if not n or not state: raise PreventUpdate
+    if not n or not state:
+        raise PreventUpdate
     metric, rng = state['metric'], state['range']
     ds = state.get('selected_dataset')
     excl = state.get('exclusion', {'methods': [], 'datasets': []})
-    full, _ = get_filtered_data(metric, rng, excl, custom)
-    if not ds: raise PreventUpdate
+    full, perf_keys, stability_keys = get_filtered_data(metric, rng, excl, custom)
+    if not ds:
+        raise PreventUpdate
 
-    methods = sorted({k.split('|')[0] for k in full if f"|{metric}|{rng}" in k and 'Stability' not in k})
-    stab_methods, stab_values, stab_colors = [], [], []
+    methods = ordered_methods({k.split('|')[0] for k in stability_keys})
+    stab_methods, stab_values, stab_colors, stab_hatches = [], [], [], []
 
     for m in methods:
         stab_key = f"{m}|Stability_{metric}|{rng}"
         if stab_key in full:
             df_s = pd.DataFrame(full[stab_key])
+            if 'Dataset' not in df_s.columns or 'Stability' not in df_s.columns:
+                continue
             sub_s = df_s[df_s['Dataset'] == ds]
             if not sub_s.empty:
-                stab_methods.append(m)
-                stab_values.append(sub_s['Stability'].iloc[0])
-                stab_colors.append(STYLE_MAP.get(m, {'color': '#666'})['color'])
+                val = pd.to_numeric(sub_s['Stability'].iloc[0], errors='coerce')
+                if not pd.isna(val):
+                    idx = methods.index(m) if m in methods else len(stab_methods)
+                    stab_methods.append(m)
+                    stab_values.append(val)
+                    stab_colors.append(get_method_style(m, methods)['color'])
+                    stab_hatches.append(get_bar_pattern(idx, len(methods), plotly=False))
 
-    if not stab_methods: raise PreventUpdate
+    if not stab_methods:
+        raise PreventUpdate
 
     buf = io.BytesIO()
     fig, ax = plt.subplots(figsize=(10, 5), dpi=150)
     bars = ax.bar(stab_methods, stab_values, color=stab_colors)
+    for bar, hatch in zip(bars, stab_hatches):
+        if hatch:
+            bar.set_hatch(hatch)
+            bar.set_edgecolor('black')
     ax.bar_label(bars, fmt='%.4f', padding=3, fontsize=9)
     ax.set_xlabel("Method")
     ax.set_ylabel("Stability Score")
@@ -831,12 +969,14 @@ def download_stability_plot(n, state, custom):
     prevent_initial_call=True
 )
 def download_cd_standard(n, state, custom):
-    if not n or not state: raise PreventUpdate
+    if not n or not state:
+        raise PreventUpdate
     metric, rng = state['metric'], state['range']
-    excl = state.get('exclusion', {'methods':[], 'datasets':[]})
-    full, keys = get_filtered_data(metric, rng, excl, custom)
-    if not keys: raise PreventUpdate
-    fig_std, _ = create_cd_figures(full, keys, metric, rng, excl.get('datasets', []))
+    excl = state.get('exclusion', {'methods': [], 'datasets': []})
+    full, perf_keys, stability_keys = get_filtered_data(metric, rng, excl, custom)
+    if not perf_keys:
+        raise PreventUpdate
+    fig_std, _ = create_cd_figures(full, perf_keys, metric, rng, excl.get('datasets', []))
     buf = io.BytesIO()
     fig_std.savefig(buf, format='pdf', bbox_inches='tight', dpi=300)
     buf.seek(0)
@@ -851,12 +991,14 @@ def download_cd_standard(n, state, custom):
     prevent_initial_call=True
 )
 def download_cd_mars(n, state, custom):
-    if not n or not state: raise PreventUpdate
+    if not n or not state:
+        raise PreventUpdate
     metric, rng = state['metric'], state['range']
-    excl = state.get('exclusion', {'methods':[], 'datasets':[]})
-    full, keys = get_filtered_data(metric, rng, excl, custom)
-    if not keys: raise PreventUpdate
-    _, fig_mars = create_cd_figures(full, keys, metric, rng, excl.get('datasets', []))
+    excl = state.get('exclusion', {'methods': [], 'datasets': []})
+    full, perf_keys, stability_keys = get_filtered_data(metric, rng, excl, custom)
+    if not perf_keys:
+        raise PreventUpdate
+    _, fig_mars = create_cd_figures(full, perf_keys, metric, rng, excl.get('datasets', []))
     buf = io.BytesIO()
     fig_mars.savefig(buf, format='pdf', bbox_inches='tight', dpi=300)
     buf.seek(0)
@@ -886,18 +1028,19 @@ def download_runtime_plot(n, rtype, exclusion, custom):
     except ValueError:
         x_vals = np.arange(len(x_cols))
     
-    colors = itertools.cycle(DEFAULT_COLORS)
-    markers = itertools.cycle(MARKERS_LIST)
+    methods = ordered_methods(df['Method'].dropna().astype(str).tolist())
     
     for _, row in df.iterrows():
+        method = str(row['Method'])
+        style = get_method_style(method, methods)
         y = row[x_cols].astype(float).values
         valid = ~pd.isna(y) & (y != -1)
         if valid.sum() > 0:
             ax.plot(
                 x_vals[valid], y[valid],
-                label=row['Method'],
-                marker=next(markers),
-                color=next(colors),
+                label=method,
+                marker=style['plt'],
+                color=style['color'],
                 lw=1.8
             )
     
@@ -939,7 +1082,7 @@ def sync_state_for_download(metric, rng, ds, exclusion, custom):
         'range': rng,
         'selected_dataset': ds,
         'exclusion': exclusion,
-        'custom_keys': list(custom.keys()) if custom else []
+        'custom_keys': list(CUSTOM_DATA_SERVER.keys())
     }
 
 
@@ -986,42 +1129,49 @@ def toggle_exclude_panel(n_toggle, n_apply, text):
     prevent_initial_call=True
 )
 def store_uploaded_data(contents, filenames, current):
-    if not contents: raise PreventUpdate
-    data = current or {}
-    
+    global CUSTOM_DATA_SERVER
+
+    if not contents:
+        raise PreventUpdate
+
+    pattern = re.compile(r'^(.+?)_(CLSACC|NMI|ACC|AUC|AAD|Stability_CLSACC|Stability_NMI|Stability_ACC|Stability_AUC|Stability_AAD)_(10Percent|100Percent)\.csv$')
+
     for content, fname in zip(contents, filenames):
-        if not content: continue
-        _, b64 = content.split(',')
-        decoded = base64.b64decode(b64)
-        
-        match = re.match(r'^(.+?)_(CLSACC|NMI|ACC|AUC|AAD|Stability_CLSACC|Stability_NMI|Stability_ACC|Stability_AUC|Stability_AAD)_(10Percent|100Percent)\.csv$', fname)
-        if match:
-            method, metric, suffix = match.groups()
-            df = pd.read_csv(io.StringIO(decoded.decode('utf-8')))
-            df.columns = [str(c) for c in df.columns]
-            key = f"{method}|{metric}|{suffix}"
-            data[key] = df.to_dict('records')
+        if not content or not fname:
             continue
-        
-        content_str = decoded.decode('utf-8')
+
+        _, b64 = content.split(',', 1)
+        decoded = base64.b64decode(b64)
+        text = decoded.decode('utf-8-sig')
+
+        match = pattern.match(fname)
+        if match:
+            method, metric_name, suffix = match.groups()
+            df = pd.read_csv(io.StringIO(text))
+            df.columns = [str(c).strip() for c in df.columns]
+            key = f"{method}|{metric_name}|{suffix}"
+            CUSTOM_DATA_SERVER[key] = df.to_dict('records')
+            continue
+
         if fname in ["time_analysis_features.csv", "time_analysis_instances.csv"]:
-            df = pd.read_csv(io.StringIO(content_str))
-            df.columns = [str(c) for c in df.columns]
-        
+            df = pd.read_csv(io.StringIO(text))
+            df.columns = [str(c).strip() for c in df.columns]
+
             if "Method" not in df.columns:
                 raise ValueError(f"{fname} must contain a Method column")
-        
+
             rtype = "features" if fname == "time_analysis_features.csv" else "instances"
             custom_key = f"custom_runtime_{rtype}"
-
-            existing = data.get(custom_key, {})
+            existing = dict(CUSTOM_DATA_SERVER.get(custom_key, {}))
             uploaded = df.set_index("Method").to_dict("index")
             existing.update(uploaded)
-        
-            data[custom_key] = existing
-            continue
-    
-    return data
+            CUSTOM_DATA_SERVER[custom_key] = existing
+
+    version = 0
+    if isinstance(current, dict):
+        version = current.get('version', 0)
+
+    return {'version': version + 1}
 
 
 if __name__ == '__main__':
