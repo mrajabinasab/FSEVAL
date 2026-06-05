@@ -5,172 +5,218 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Benchmarking | FSEVAL</title>
     <style>
-        body { 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            line-height: 1.6; 
-            color: #333; 
-            margin: 0; 
-            background-color: #f8f9fc; 
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            background-color: #f8f9fc;
         }
-        .container { 
-            max-width: 960px; 
-            margin: 50px auto; 
-            padding: 40px; 
-            background: white; 
-            border-radius: 12px; 
-            box-shadow: 0 4px 20px rgba(0,0,0,0.05); 
+
+        .container {
+            max-width: 960px;
+            margin: 50px auto;
+            padding: 40px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.05);
         }
-        h1 { 
-            color: #1e293b; 
-            border-bottom: 3px solid #4361ee; 
-            padding-bottom: 12px; 
-            margin-bottom: 30px; 
+
+        h1 {
+            color: #1e293b;
+            border-bottom: 3px solid #4361ee;
+            padding-bottom: 12px;
+            margin-bottom: 30px;
         }
-        h2 { 
-            color: #1e293b; 
-            margin-top: 40px; 
-            margin-bottom: 18px; 
+
+        h2 {
+            color: #1e293b;
+            margin-top: 40px;
+            margin-bottom: 18px;
         }
-        h3 { 
-            color: #2d3748; 
-            font-size: 1.28rem; 
-            margin-top: 2.2em; 
-            margin-bottom: 0.9em; 
-            border-left: 4px solid #6366f1; 
-            padding-left: 12px; 
+
+        h3 {
+            color: #2d3748;
+            font-size: 1.28rem;
+            margin-top: 2.2em;
+            margin-bottom: 0.9em;
+            border-left: 4px solid #6366f1;
+            padding-left: 12px;
         }
-        p { 
-            margin-bottom: 18px; 
-            font-size: 1.05rem; 
-            color: #475569; 
+
+        p {
+            margin-bottom: 18px;
+            font-size: 1.05rem;
+            color: #475569;
         }
-        .code-header { 
-            background: #2d3436; 
-            color: #dfe6e9; 
-            padding: 10px 20px; 
-            border-radius: 8px 8px 0 0; 
-            font-family: monospace; 
-            font-size: 0.9rem; 
-            border-bottom: 1px solid #444; 
+
+        .code-header {
+            background: #2d3436;
+            color: #dfe6e9;
+            padding: 10px 20px;
+            border-radius: 8px 8px 0 0;
+            font-family: monospace;
+            font-size: 0.9rem;
+            border-bottom: 1px solid #444;
         }
-        .code-block { 
-            background: #1e1e1e; 
-            color: #d4d4d4; 
-            padding: 22px; 
-            border-radius: 0 0 8px 8px; 
-            overflow-x: auto; 
-            font-family: 'Consolas', 'Courier New', monospace; 
-            line-height: 1.55; 
-            margin-bottom: 28px; 
-            white-space: pre; 
-            font-size: 0.96rem; 
+
+        .code-block {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 22px;
+            border-radius: 0 0 8px 8px;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Courier New', monospace;
+            line-height: 1.55;
+            margin-bottom: 28px;
+            white-space: pre;
+            font-size: 0.96rem;
         }
+
         .keyword { color: #569cd6; }
-        .string   { color: #ce9178; }
-        .comment  { color: #6a9955; }
-        .func     { color: #dcdcaa; }
-        .number   { color: #b5cea8; }
-        .bool     { color: #569cd6; }
-        
-        .btn-github { 
-            display: inline-block; 
-            background: #24292e; 
-            color: white; 
-            padding: 12px 24px; 
-            text-decoration: none; 
-            border-radius: 6px; 
-            font-weight: 600; 
-            margin-top: 12px; 
-            transition: background 0.2s; 
+        .string { color: #ce9178; }
+        .comment { color: #6a9955; }
+        .func { color: #dcdcaa; }
+        .number { color: #b5cea8; }
+        .bool { color: #569cd6; }
+
+        .btn-github {
+            display: inline-block;
+            background: #24292e;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            margin-top: 12px;
+            transition: background 0.2s;
         }
+
         .btn-github:hover { background: #000; }
-        
-        .back-link { 
-            display: inline-block; 
-            margin-top: 50px; 
-            color: #64748b; 
-            text-decoration: none; 
-            font-weight: 600; 
+
+        .back-link {
+            display: inline-block;
+            margin-top: 50px;
+            color: #64748b;
+            text-decoration: none;
+            font-weight: 600;
         }
+
         .back-link:hover { color: #4361ee; }
-        
-        .note { 
-            background: #f0f9ff; 
-            border-left: 4px solid #3b82f6; 
-            padding: 14px 18px; 
-            margin: 20px 0; 
-            border-radius: 6px; 
+
+        .note {
+            background: #f0f9ff;
+            border-left: 4px solid #3b82f6;
+            padding: 14px 18px;
+            margin: 20px 0;
+            border-radius: 6px;
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <h1>Benchmarking with FSEVAL</h1>
-        
-        <p>The <code>sdufseval</code> library allows you to reproducibly benchmark feature selection methods on high-dimensional datasets, analyze their runtime scalability, and compute selection stability.</p>
+
+        <p>The <code>FSEVAL</code> library allows you to reproducibly benchmark feature selection methods on high-dimensional datasets, analyze their runtime scalability, and compute selection stability.</p>
 
         <h2>Installation</h2>
+
         <p>Install the package directly from PyPI:</p>
-        
+
         <div class="code-header">Install via pip</div>
-        <div class="code-block">
-<span class="keyword">pip install</span> sdufseval
-        </div>
+        <div class="code-block"><span class="keyword">pip install</span> sdufseval</div>
 
         <h2>Full Benchmark, Stability, and Runtime Example</h2>
-        
+
         <p>This script executes a complete evaluation pipeline:</p>
+
         <ul>
-            <li>Performance evaluation (CLSACC, NMI, ACC, AUC, and AAD)</li>
-            <li>Stability of feature selection algorithms based on each performance metric</li>
+            <li>Performance evaluation using supervised, unsupervised, model-agnostic, and custom metrics</li>
+            <li>Custom local neighborhood consistency evaluation using Shared Nearest Neighbors</li>
             <li>Runtime scalability experiments</li>
         </ul>
 
         <div class="code-header">benchmark.py</div>
-        <div class="code-block">
-<span class="keyword">from</span> sdufseval <span class="keyword">import</span> FSEVAL
+        <div class="code-block"><span class="keyword">from</span> sdufseval <span class="keyword">import</span> FSEVAL
 <span class="keyword">import</span> numpy <span class="keyword">as</span> np
+<span class="keyword">from</span> sklearn.neighbors <span class="keyword">import</span> NearestNeighbors
+
+
+<span class="keyword">def</span> <span class="func">snn_consistency_k5</span>(X_orig, X_sub, y):
+    <span class="comment">"""
+    Calculates the average proportion of shared nearest neighbors (k=5)
+    between the original space and the feature-selected subspace.
+    """</span>
+    k = <span class="number">5</span>
+    k = <span class="func">min</span>(k, X_orig.shape[<span class="number">0</span>] - <span class="number">1</span>)
+
+    <span class="keyword">def</span> <span class="func">get_nn_indices</span>(data, n_neighbors):
+        nbrs = NearestNeighbors(n_neighbors=n_neighbors + <span class="number">1</span>, algorithm=<span class="string">'auto'</span>).fit(data)
+        _, indices = nbrs.kneighbors(data)
+        <span class="keyword">return</span> indices[:, <span class="number">1</span>:]
+
+    nn_orig = get_nn_indices(X_orig, k)
+    nn_sub = get_nn_indices(X_sub, k)
+
+    intersections = [
+        <span class="func">len</span>(np.intersect1d(nn_orig[i], nn_sub[i]))
+        <span class="keyword">for</span> i <span class="keyword">in</span> <span class="func">range</span>(<span class="func">len</span>(nn_orig))
+    ]
+
+    <span class="keyword">return</span> np.mean(intersections) / k
+
 
 <span class="keyword">if</span> __name__ == <span class="string">"__main__"</span>:
-    DATASETS_TO_RUN = [<span class="string">'ALLAML'</span>, <span class="string">'COIL20'</span>, <span class="string">'Prostate_GE'</span>, <span class="string">'colon'</span>, <span class="string">'lung'</span>]
 
-    <span class="comment"># Initialize FSEVAL</span>
+    DATASETS_TO_RUN = [<span class="string">'colon'</span>, <span class="string">'leukemia'</span>, <span class="string">'prostate_GE'</span>]
+
     evaluator = FSEVAL(
-        output_dir=<span class="string">"results"</span>,
-        avg_steps=<span class="number">10</span>
+        output_dir=<span class="string">"benchmark_results"</span>,
+        avg_steps=<span class="number">5</span>,
+        eval_type=[<span class="string">"supervised"</span>, <span class="string">"unsupervised"</span>, <span class="string">"model_agnostic"</span>, <span class="string">"custom"</span>],
+        custom_metrics={<span class="string">"SNN_K5"</span>: snn_consistency_k5}
     )
 
     methods_list = [
         {
             <span class="string">'name'</span>: <span class="string">'Random'</span>,
             <span class="string">'type'</span>: <span class="string">'unsupervised'</span>,
+            <span class="string">'stochastic'</span>: <span class="bool">True</span>,
             <span class="string">'func'</span>: evaluator.random_baseline
         },
         {
-            <span class="string">'name'</span>: <span class="string">'VCSDFS'</span>,
+            <span class="string">'name'</span>: <span class="string">'Variance_Baseline'</span>,
             <span class="string">'type'</span>: <span class="string">'unsupervised'</span>,
-            <span class="string">'func'</span>: <span class="keyword">lambda</span> X: my_vcsdfs_logic(X)
+            <span class="string">'stochastic'</span>: <span class="bool">False</span>,
+            <span class="string">'func'</span>: <span class="keyword">lambda</span> X: np.var(X, axis=<span class="number">0</span>)
         }
     ]
 
-    <span class="comment"># ─── 1. Run Standard Benchmark (Calculates ACC, AUC, AAD, etc.) ───</span>
+    <span class="func">print</span>(<span class="string">"&gt;&gt;&gt; Starting Integrated Evaluation (Global &amp; Local metrics)..."</span>)
     evaluator.run(DATASETS_TO_RUN, methods_list)
 
-    <span class="comment"># ─── 2. Run Scalability Analysis ───</span>
-    <span class="keyword">print</span>(<span class="string">"\n>>> Starting Scalability Analysis..."</span>)
-    evaluator.timer(methods=methods_list, vary_param=<span class="string">'both'</span>)
-        </div>
+    <span class="func">print</span>(<span class="string">"\n&gt;&gt;&gt; Starting Scalability Analysis..."</span>)
+    evaluator.timer(
+        methods=methods_list,
+        vary_param=<span class="string">'both'</span>,
+        time_limit=<span class="number">3600</span>
+    )</div>
 
         <h2>Output</h2>
+
         <p>After running the script, the following files are generated for the dashboard:</p>
+
         <ul>
-            <li><code>results/</code> folder containing performance metrics (including <code>Method_AAD_Range.csv</code>).</li>
-            <li>Stability result files: <code>Method_Stability_Metric_Range.csv</code> (e.g., <code>VCSDFS_Stability_ACC_100Percent.csv</code>).</li>
-            <li>Runtime scalability CSV files (<code>time_analysis_features.csv</code> and <code>time_analysis_instances.csv</code>).</li>
+            <li><code>benchmark_results/</code> folder containing benchmark performance metrics.</li>
+            <li>Custom metric results including <code>SNN_K5</code>.</li>
+            <li>Runtime scalability CSV files generated by the timer analysis.</li>
         </ul>
 
-        <a href="https://github.com/mrajabinasab/FSEVAL" class="btn-github" target="_blank">View FSEVAL on GitHub →</a>
+        <a href="https://github.com/mrajabinasab/FSEVAL" class="btn-github" target="_blank">View FSEVAL on GitHub</a>
+
         <br><br>
+
         <a href="/" class="back-link">← Back to Dashboard</a>
     </div>
 </body>
