@@ -11,9 +11,10 @@ jobs:
       - name: Build draft PDF
         uses: openjournals/openjournals-draft-action@master
         with:
+          ref: joss
           journal: joss
           # This should be the path to the paper within your repo.
-          paper-path: ./tree/joss/JOSS/paper.md
+          paper-path: JOSS/paper.md
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
