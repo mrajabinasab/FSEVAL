@@ -106,7 +106,7 @@ class FSEVAL:
                     print(f"  [{name}] {ds_name} - Run {r+1}/{repeats}")
                     if fs_type == "unsupervised":
                         scores = fs_func(X)
-                    if fs_type == "supervised":
+                    elif fs_type == "supervised":
                         scores = fs_func(X, y)
                     else:
                         raise ValueError("Feature selection algorithm type is not valid.")
