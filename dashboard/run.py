@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.graph_objs as go
 from dash import Dash, dcc, html, Input, Output, dash_table, State, no_update, callback_context
 import re
+import ast
 import numpy as np
 import io
 import base64
@@ -54,9 +55,25 @@ def serve_random_file():
 def serve_random_dir():
     return send_from_directory('random', 'index.html')
 
+
+@server.route('/map/index.html')
+def serve_aad_file():
+    return send_from_directory('map', 'index.html')
+
+@server.route('/map/')
+def serve_aad_dir():
+    return send_from_directory('map', 'index.html')
+
+
+@server.route('/map/<path:filename>')
+def serve_map_assets(filename):
+    return send_from_directory('map', filename)
+
+
 @server.route('/random/<path:filename>')
 def serve_random_assets(filename):
     return send_from_directory('random', filename)
+
 
 @server.route('/files/<path:filename>')
 def download_file(filename):
@@ -66,6 +83,72 @@ def download_file(filename):
 DATA_DIR = 'resources'
 
 BENCHMARK_METRICS = ['CLSACC', 'NMI', 'ACC', 'AUC', 'AAD']
+SUPERVISED_METRICS = {'ACC', 'AUC'}
+
+# Per-classifier result files of FSEVAL (save_classifier_results=True)
+CLASSIFIER_LABELS = {
+    'RANDOMFOREST': 'Random Forest',
+    'SVM': 'SVM',
+    'KNN': 'KNN',
+    'XGBOOST': 'XGBoost',
+    'DECISIONTREE': 'Decision Tree',
+}
+DEFAULT_CLASSIFIER = 'RANDOMFOREST'
+
+# FSEVAL >= 1.3 file names:
+#   {method}_{metric}_{range}_{signature}.csv
+#   {method}_{metric}_Stability_{range}_{signature}.csv
+#   {method}_{classifier}_{metric}_{range}_{signature}.csv
+RESULT_PATTERN = re.compile(
+    r'^(?P<method>.+?)'
+    r'(?:_(?P<clf>' + '|'.join(CLASSIFIER_LABELS) + r'))?'
+    r'_(?P<metric>' + '|'.join(BENCHMARK_METRICS) + r')'
+    r'(?P<stab>_Stability)?'
+    r'_(?P<rng>10Percent|100Percent)'
+    r'_(?P<sig>SI\d+_CV\d+_RS\d+|USI\d+_RS\d+|RS\d+)\.csv$'
+)
+
+
+def metric_key(metric, clf):
+    """Internal metric key: ACC/AUC are stored per classifier as 'ACC@RANDOMFOREST'."""
+    return f"{metric}@{clf}" if metric in SUPERVISED_METRICS else metric
+
+
+def metric_label(metric, clf):
+    if metric in SUPERVISED_METRICS:
+        return f"{metric} ({CLASSIFIER_LABELS.get(clf, clf)})"
+    return metric
+
+
+def classifier_options(data):
+    """Classifiers that have result files, default classifier first."""
+    found = {k.split('|')[1].split('@')[1] for k in data
+             if k.count('|') == 2 and '@' in k.split('|')[1]}
+    found.add(DEFAULT_CLASSIFIER)
+    ordered = [c for c in CLASSIFIER_LABELS if c in found]
+    return [{'label': CLASSIFIER_LABELS[c], 'value': c} for c in ordered]
+
+
+def parse_result_filename(fname):
+    """Return (data key, signature) for a usable result file, else None.
+    ACC/AUC files averaged over classifiers are skipped; only per-classifier files are used."""
+    m = RESULT_PATTERN.match(fname)
+    if not m:
+        return None
+    metric, clf = m['metric'], m['clf']
+    if (metric in SUPERVISED_METRICS) != (clf is not None):
+        return None
+    mkey = metric_key(metric, clf)
+    if m['stab']:
+        mkey = f"Stability_{mkey}"
+    return f"{m['method']}|{mkey}|{m['rng']}", m['sig']
+
+
+def read_result_csv(source):
+    df = pd.read_csv(source)
+    df.columns = [str(c).strip() for c in df.columns]
+    return df.to_dict('records')
+
 BENCHMARK_METHODS = ['Variance', 'Correlation', 'Laplacian', 'Random', 'VCSDFS', 'LIDFS', 'SCFS', 'MCFS']
 
 STYLE_MAP = {
@@ -276,16 +359,21 @@ class UnifiedPlotter:
 
 def load_data():
     data_dict = {}
-    pattern = re.compile(r'^(.+?)_(CLSACC|NMI|ACC|AUC|AAD|Stability_CLSACC|Stability_NMI|Stability_ACC|Stability_AUC|Stability_AAD)_(10Percent|100Percent)\.csv$')
+    signatures = {}
     if not os.path.exists(DATA_DIR):
         return data_dict
-    for f in os.listdir(DATA_DIR):
-        m = pattern.match(f)
-        if m:
-            method, metric, suffix = m.groups()
-            df = pd.read_csv(os.path.join(DATA_DIR, f))
-            df.columns = [str(c) for c in df.columns]
-            data_dict[f"{method}|{metric}|{suffix}"] = df.to_dict('records')
+    # Newest files first: if several runs (signatures) exist for one key, the latest wins.
+    files = sorted(os.listdir(DATA_DIR), key=lambda f: os.path.getmtime(os.path.join(DATA_DIR, f)), reverse=True)
+    for f in files:
+        parsed = parse_result_filename(f)
+        if parsed is None:
+            continue
+        key, sig = parsed
+        if key in data_dict:
+            print(f"WARNING: {f} ignored, a newer file for {key} was loaded ({signatures[key]})")
+            continue
+        data_dict[key] = read_result_csv(os.path.join(DATA_DIR, f))
+        signatures[key] = sig
     return data_dict
 
 
@@ -400,6 +488,7 @@ def serve_layout():
             html.Div(style={'display': 'flex', 'gap': '16px', 'alignItems': 'flex-end'}, children=[
                 html.Div([html.Label('Dataset', style={'fontSize': '13px', 'fontWeight': '600', 'color': '#475569'}), dcc.Dropdown(id='dataset-dropdown', style={'width': '190px'})]),
                 html.Div([html.Label('Metric',   style={'fontSize': '13px', 'fontWeight': '600', 'color': '#475569'}), dcc.Dropdown(id='metric-dropdown', options=[{'label': m, 'value': m} for m in BENCHMARK_METRICS], value='CLSACC', style={'width': '130px'})]),
+                html.Div([html.Label('Classifier', style={'fontSize': '13px', 'fontWeight': '600', 'color': '#475569'}), dcc.Dropdown(id='classifier-dropdown', options=classifier_options(INITIAL_DATA), value=DEFAULT_CLASSIFIER, clearable=False, style={'width': '170px'})]),
                 html.Div([html.Label('Range',    style={'fontSize': '13px', 'fontWeight': '600', 'color': '#475569'}), dcc.Dropdown(id='range-dropdown', options=[{'label': v['label'], 'value': k} for k, v in PERCENTAGE_RANGES.items()], value='10Percent', style={'width': '170px'})]),
             ])
         ]),
@@ -488,10 +577,11 @@ def serve_layout():
 
 app.layout = serve_layout
 
-def get_filtered_data(metric, rng, exclusion, custom):
+def get_filtered_data(metric, rng, exclusion, custom, clf=DEFAULT_CLASSIFIER):
     session_data = get_session_data(custom)
     full = {**INITIAL_DATA, **session_data}
     ex_methods = set((exclusion or {}).get('methods', []))
+    mkey = metric_key(metric, clf or DEFAULT_CLASSIFIER)
 
     perf_keys = []
     stability_keys = []
@@ -506,9 +596,9 @@ def get_filtered_data(metric, rng, exclusion, custom):
         if method in ex_methods or key_rng != rng:
             continue
 
-        if key_metric == metric:
+        if key_metric == mkey:
             perf_keys.append(k)
-        elif key_metric == f"Stability_{metric}":
+        elif key_metric == f"Stability_{mkey}":
             stability_keys.append(k)
 
     return full, perf_keys, stability_keys
@@ -575,27 +665,25 @@ def compute_cd_mars(wr_mat, n_ds):
     return cd_mars
 
 
-def create_cd_figures(full_data, keys, metric, rng, excluded_ds):
+def create_cd_figures(full_data, keys, metric, rng, excluded_ds, label=None):
     if not keys:
         empty = plt.figure()
         plt.close(empty)
         return empty, empty
 
-    methods = sorted({k.split('|')[0] for k in keys})
+    key_of = {k.split('|')[0]: k for k in keys}
+    methods = sorted(key_of)
+    frames = {m: pd.DataFrame(full_data[key_of[m]]) for m in methods}
     p_cols = PERCENTAGE_RANGES[rng]['cols']
 
     perf_matrix = []
-    ref_df = pd.DataFrame(full_data[keys[0]])
+    ref_df = frames[methods[0]]
     for ds in sorted(set(ref_df['Dataset']) - set(excluded_ds)):
         row = []
-        valid = all(
-            f"{m}|{metric}|{rng}" in full_data and
-            not pd.DataFrame(full_data[f"{m}|{metric}|{rng}"])[pd.DataFrame(full_data[f"{m}|{metric}|{rng}"])['Dataset'] == ds].empty
-            for m in methods
-        )
+        valid = all(not frames[m][frames[m]['Dataset'] == ds].empty for m in methods)
         if not valid: continue
         for m in methods:
-            df = pd.DataFrame(full_data[f"{m}|{metric}|{rng}"])
+            df = frames[m]
             sub = df[df['Dataset'] == ds]
             row.append(sub[p_cols].apply(pd.to_numeric).mean(axis=1).mean())
         perf_matrix.append(row)
@@ -613,13 +701,13 @@ def create_cd_figures(full_data, keys, metric, rng, excluded_ds):
     ranks = np.apply_along_axis(rankdata, 1, ranking_matrix)
     std_ranks = ranks.mean(axis=0)
     cd_std = 2.728 * np.sqrt(n_m * (n_m + 1) / (6.0 * n_ds))
-    fig_std = UnifiedPlotter.graph_ranks(std_ranks, methods, cd=cd_std, title="Standard", name=metric)
+    fig_std = UnifiedPlotter.graph_ranks(std_ranks, methods, cd=cd_std, title="Standard", name=label or metric)
 
     X = perf_matrix if not is_lower_better else -perf_matrix
     wr_mat = compute_weighted_rank_matrix(X)
     mars_scores = wr_mat.mean(axis=0)
     cd_mars = compute_cd_mars(wr_mat, n_ds)
-    fig_mars = UnifiedPlotter.graph_ranks(mars_scores, methods, cd=cd_mars, title="MARS", name=metric)
+    fig_mars = UnifiedPlotter.graph_ranks(mars_scores, methods, cd=cd_mars, title="MARS", name=label or metric)
 
     return fig_std, fig_mars
 
@@ -639,10 +727,12 @@ def create_cd_figures(full_data, keys, metric, rng, excluded_ds):
      Input('range-dropdown', 'value'),
      Input('exclusion-store', 'data'),
      Input('custom-data-store', 'data'),
-     Input('runtime-type-dropdown', 'value')]
+     Input('runtime-type-dropdown', 'value'),
+     Input('classifier-dropdown', 'value')]
 )
-def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
-    full_data, perf_keys, stability_keys = get_filtered_data(metric, rng, exclusion, custom or {})
+def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype, clf):
+    full_data, perf_keys, stability_keys = get_filtered_data(metric, rng, exclusion, custom or {}, clf)
+    label = metric_label(metric, clf)
     
     empty = go.Figure()
     empty.update_layout(title="No data available")
@@ -752,7 +842,7 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
         columns = [{"name": c, "id": c, "presentation": "markdown"} for c in ['Method'] + unique_datasets]
 
     if perf_keys:
-        fig_std_mat, fig_mars_mat = create_cd_figures(full_data, perf_keys, metric, rng, exclusion.get('datasets', []))
+        fig_std_mat, fig_mars_mat = create_cd_figures(full_data, perf_keys, metric, rng, exclusion.get('datasets', []), label)
     else:
         fig_std_mat, fig_mars_mat = None, None
 
@@ -816,7 +906,7 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
         legend=dict(orientation="h", yanchor="bottom", y=-0.28, xanchor="center", x=0.5)
     )
 
-    title = f"Metric: {metric}   |   {PERCENTAGE_RANGES[rng]['label']}"
+    title = f"Metric: {label}   |   {PERCENTAGE_RANGES[rng]['label']}"
 
     return line_fig, rows, columns, [{'label': d, 'value': d} for d in unique_datasets], \
            active_ds, title, cd_std_plotly, cd_mars_plotly, rt_fig
@@ -829,19 +919,25 @@ def update_all_views(selected_ds, metric, rng, exclusion, custom, rtype):
      Input('metric-dropdown', 'value'),
      Input('range-dropdown', 'value'),
      Input('exclusion-store', 'data'),
-     Input('custom-data-store', 'data')]
+     Input('custom-data-store', 'data'),
+     Input('classifier-dropdown', 'value')]
 )
-def update_stability_view(active_ds, metric, rng, exclusion, custom):
-    full_data, perf_keys, stability_keys = get_filtered_data(metric, rng, exclusion, custom or {})
+def update_stability_view(active_ds, metric, rng, exclusion, custom, clf):
+    full_data, perf_keys, stability_keys = get_filtered_data(metric, rng, exclusion, custom or {}, clf)
 
     stab_fig = go.Figure()
-    stab_title = f"Stability Analysis: {metric}"
+    stab_title = f"Stability Analysis: {metric_label(metric, clf)}"
 
     if not active_ds:
         stab_fig.update_layout(title="No dataset selected")
         return stab_fig, stab_title
 
-    stability_methods = ordered_methods({k.split('|')[0] for k in stability_keys})
+    if not stability_keys and metric in SUPERVISED_METRICS:
+        stab_fig.update_layout(title="Stability is not available per classifier")
+        return stab_fig, stab_title
+
+    stab_key_of = {k.split('|')[0]: k for k in stability_keys}
+    stability_methods = ordered_methods(stab_key_of)
     stab_methods = []
     stab_values = []
     stab_colors = []
@@ -849,12 +945,7 @@ def update_stability_view(active_ds, metric, rng, exclusion, custom):
     active_ds_clean = str(active_ds).strip()
 
     for m in stability_methods:
-        stab_key = f"{m}|Stability_{metric}|{rng}"
-
-        if stab_key not in full_data:
-            continue
-
-        df_s = pd.DataFrame(full_data[stab_key])
+        df_s = pd.DataFrame(full_data[stab_key_of[m]])
 
         if 'Dataset' not in df_s.columns or 'Stability' not in df_s.columns:
             continue
@@ -907,8 +998,9 @@ def download_line_plot(n, state, custom):
     if not n or not state:
         raise PreventUpdate
     metric, rng, ds = state['metric'], state['range'], state.get('selected_dataset')
+    clf = state.get('classifier', DEFAULT_CLASSIFIER)
     excl = state.get('exclusion', {'methods': [], 'datasets': []})
-    full, perf_keys, stability_keys = get_filtered_data(metric, rng, excl, custom)
+    full, perf_keys, stability_keys = get_filtered_data(metric, rng, excl, custom, clf)
     if not ds or not perf_keys:
         raise PreventUpdate
     p_cols = PERCENTAGE_RANGES[rng]['cols']
@@ -946,7 +1038,7 @@ def download_line_plot(n, state, custom):
     plt.savefig(buf, format='pdf', bbox_inches='tight')
     buf.seek(0)
     plt.close(fig)
-    return dcc.send_bytes(buf.getvalue(), filename=f"line_{ds}_{metric}_{rng}.pdf")
+    return dcc.send_bytes(buf.getvalue(), filename=f"line_{ds}_{metric_key(metric, clf).replace('@', '_')}_{rng}.pdf")
 
 
 @app.callback(
@@ -959,19 +1051,20 @@ def download_stability_plot(n, state, custom):
     if not n or not state:
         raise PreventUpdate
     metric, rng = state['metric'], state['range']
+    clf = state.get('classifier', DEFAULT_CLASSIFIER)
     ds = state.get('selected_dataset')
     excl = state.get('exclusion', {'methods': [], 'datasets': []})
-    full, perf_keys, stability_keys = get_filtered_data(metric, rng, excl, custom)
+    full, perf_keys, stability_keys = get_filtered_data(metric, rng, excl, custom, clf)
     if not ds:
         raise PreventUpdate
 
-    methods = ordered_methods({k.split('|')[0] for k in stability_keys})
+    stab_key_of = {k.split('|')[0]: k for k in stability_keys}
+    methods = ordered_methods(stab_key_of)
     stab_methods, stab_values, stab_colors, stab_hatches = [], [], [], []
 
     for m in methods:
-        stab_key = f"{m}|Stability_{metric}|{rng}"
-        if stab_key in full:
-            df_s = pd.DataFrame(full[stab_key])
+        if m in stab_key_of:
+            df_s = pd.DataFrame(full[stab_key_of[m]])
             if 'Dataset' not in df_s.columns or 'Stability' not in df_s.columns:
                 continue
             sub_s = df_s[df_s['Dataset'] == ds]
@@ -997,13 +1090,13 @@ def download_stability_plot(n, state, custom):
     ax.bar_label(bars, fmt='%.4f', padding=3, fontsize=9)
     ax.set_xlabel("Method")
     ax.set_ylabel("Stability Score")
-    ax.set_title(f"Stability: {metric} | {ds} | {PERCENTAGE_RANGES[rng]['label']}")
+    ax.set_title(f"Stability: {metric_label(metric, clf)} | {ds} | {PERCENTAGE_RANGES[rng]['label']}")
     ax.grid(axis='y', linestyle='--', linewidth=0.7, alpha=0.6, color='gray')
     plt.tight_layout()
     plt.savefig(buf, format='pdf', bbox_inches='tight')
     buf.seek(0)
     plt.close(fig)
-    return dcc.send_bytes(buf.getvalue(), filename=f"stability_{ds}_{metric}_{rng}.pdf")
+    return dcc.send_bytes(buf.getvalue(), filename=f"stability_{ds}_{metric_key(metric, clf).replace('@', '_')}_{rng}.pdf")
 
 
 @app.callback(
@@ -1016,16 +1109,17 @@ def download_cd_standard(n, state, custom):
     if not n or not state:
         raise PreventUpdate
     metric, rng = state['metric'], state['range']
+    clf = state.get('classifier', DEFAULT_CLASSIFIER)
     excl = state.get('exclusion', {'methods': [], 'datasets': []})
-    full, perf_keys, stability_keys = get_filtered_data(metric, rng, excl, custom)
+    full, perf_keys, stability_keys = get_filtered_data(metric, rng, excl, custom, clf)
     if not perf_keys:
         raise PreventUpdate
-    fig_std, _ = create_cd_figures(full, perf_keys, metric, rng, excl.get('datasets', []))
+    fig_std, _ = create_cd_figures(full, perf_keys, metric, rng, excl.get('datasets', []), metric_label(metric, clf))
     buf = io.BytesIO()
     fig_std.savefig(buf, format='pdf', bbox_inches='tight', dpi=300)
     buf.seek(0)
     plt.close(fig_std)
-    return dcc.send_bytes(buf.getvalue(), filename=f"CD_Standard_{metric}_{rng}.pdf")
+    return dcc.send_bytes(buf.getvalue(), filename=f"CD_Standard_{metric_key(metric, clf).replace('@', '_')}_{rng}.pdf")
 
 
 @app.callback(
@@ -1038,16 +1132,17 @@ def download_cd_mars(n, state, custom):
     if not n or not state:
         raise PreventUpdate
     metric, rng = state['metric'], state['range']
+    clf = state.get('classifier', DEFAULT_CLASSIFIER)
     excl = state.get('exclusion', {'methods': [], 'datasets': []})
-    full, perf_keys, stability_keys = get_filtered_data(metric, rng, excl, custom)
+    full, perf_keys, stability_keys = get_filtered_data(metric, rng, excl, custom, clf)
     if not perf_keys:
         raise PreventUpdate
-    _, fig_mars = create_cd_figures(full, perf_keys, metric, rng, excl.get('datasets', []))
+    _, fig_mars = create_cd_figures(full, perf_keys, metric, rng, excl.get('datasets', []), metric_label(metric, clf))
     buf = io.BytesIO()
     fig_mars.savefig(buf, format='pdf', bbox_inches='tight', dpi=300)
     buf.seek(0)
     plt.close(fig_mars)
-    return dcc.send_bytes(buf.getvalue(), filename=f"CD_MARS_{metric}_{rng}.pdf")
+    return dcc.send_bytes(buf.getvalue(), filename=f"CD_MARS_{metric_key(metric, clf).replace('@', '_')}_{rng}.pdf")
 
 
 @app.callback(
@@ -1118,16 +1213,27 @@ def download_runtime_plot(n, rtype, exclusion, custom):
      Input('range-dropdown', 'value'),
      Input('dataset-dropdown', 'value'),
      Input('exclusion-store', 'data'),
-     Input('custom-data-store', 'data')]
+     Input('custom-data-store', 'data'),
+     Input('classifier-dropdown', 'value')]
 )
-def sync_state_for_download(metric, rng, ds, exclusion, custom):
+def sync_state_for_download(metric, rng, ds, exclusion, custom, clf):
     return {
         'metric': metric,
         'range': rng,
+        'classifier': clf,
         'selected_dataset': ds,
         'exclusion': exclusion,
         'custom_keys': list(get_session_data(custom).keys())
     }
+
+
+@app.callback(
+    [Output('classifier-dropdown', 'options'), Output('classifier-dropdown', 'disabled')],
+    [Input('metric-dropdown', 'value'), Input('custom-data-store', 'data')]
+)
+def update_classifier_dropdown(metric, custom):
+    full = {**INITIAL_DATA, **get_session_data(custom or {})}
+    return classifier_options(full), metric not in SUPERVISED_METRICS
 
 
 @app.callback(
@@ -1159,8 +1265,9 @@ def toggle_exclude_panel(n_toggle, n_apply, text):
     if trigger == 'btn-exclude-toggle':
         return {'display': 'block'}, no_update
     try:
-        ds = eval(re.search(r'DATASETS\s*=\s*(\[.*?\])', text, re.DOTALL).group(1))
-        me = eval(re.search(r'METHODS\s*=\s*(\[.*?\])', text, re.DOTALL).group(1))
+        # literal_eval only accepts literals; eval() here would run visitors' code on the server
+        ds = ast.literal_eval(re.search(r'DATASETS\s*=\s*(\[.*?\])', text, re.DOTALL).group(1))
+        me = ast.literal_eval(re.search(r'METHODS\s*=\s*(\[.*?\])', text, re.DOTALL).group(1))
         return {'display': 'none'}, {'datasets': ds, 'methods': me}
     except:
         return {'display': 'none'}, no_update
@@ -1178,7 +1285,6 @@ def store_uploaded_data(contents, filenames, current):
 
     session_id = get_session_id(current)
     session_data = CUSTOM_DATA_SERVER[session_id]['data']
-    pattern = re.compile(r'^(.+?)_(CLSACC|NMI|ACC|AUC|AAD|Stability_CLSACC|Stability_NMI|Stability_ACC|Stability_AUC|Stability_AAD)_(10Percent|100Percent)\.csv$')
 
     for content, fname in zip(contents, filenames):
         if not content or not fname:
@@ -1188,13 +1294,9 @@ def store_uploaded_data(contents, filenames, current):
         decoded = base64.b64decode(b64)
         text = decoded.decode('utf-8-sig')
 
-        match = pattern.match(fname)
-        if match:
-            method, metric_name, suffix = match.groups()
-            df = pd.read_csv(io.StringIO(text))
-            df.columns = [str(c).strip() for c in df.columns]
-            key = f"{method}|{metric_name}|{suffix}"
-            session_data[key] = df.to_dict('records')
+        parsed = parse_result_filename(fname)
+        if parsed:
+            session_data[parsed[0]] = read_result_csv(io.StringIO(text))
             continue
 
         if fname in ["time_analysis_features.csv", "time_analysis_instances.csv"]:
